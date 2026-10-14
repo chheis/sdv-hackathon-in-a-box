@@ -1,0 +1,393 @@
+diff --git a/Dockerfile b/Dockerfile
+index 19aa255..ba54d62 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -5,6 +5,7 @@
+ # AMD is a statically linked MUSL build
+ FROM ubuntu:22.04 AS target-amd64
+ ENV BUILDTARGET="x86_64-unknown-linux-musl"
++ENV DATABROKER_BACKEND="databroker"
+ COPY --chmod=0755 bin/amd64/databroker-amd64 /app/databroker
+ 
+ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
+@@ -19,12 +20,13 @@ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
+ FROM ubuntu:22.04 AS target-arm64
+ ENV BUILDTARGET="aarch64-unknown-linux-musl"
+ COPY --chmod=0755 bin/arm64/databroker-arm64 /app/databroker
++COPY --chmod=0755 bin/arm64/databroker-mw-com-demo /app/mw-com-dem-bin
+ 
+ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
+     && chown -R dev:sdvr /app/databroker \
+     && mkdir -p /home/dev/ws/kit-manager \
+     && chown -R dev:sdvr /home/dev/ && chmod -R u+w /home/dev/ \
+-    && for i in 1 2 3; do apt-get update && apt-get install -y --no-install-recommends python3 mosquitto ca-certificates python-is-python3 python3-pip nano git && break || sleep 5; done \
++    && for i in 1 2 3; do apt-get update && apt-get install -y --no-install-recommends python3 mosquitto ca-certificates python-is-python3 python3-pip nano git libstdc++6 && break || sleep 5; done \
+     && apt-get clean \
+     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* 
+ 
+@@ -56,7 +58,7 @@ COPY requirements-docker.txt .
+ RUN mkdir -p /home/dev/python-packages
+ 
+ # Install all Python packages to the target directory
+-ENV PYTHONPATH="/home/dev/python-packages:${PYTHONPATH}"
++ENV PYTHONPATH="/home/dev/python-packages"
+ RUN pip3 install --no-cache-dir --target /home/dev/python-packages -r requirements-docker.txt
+ 
+ # Copy VSS specification from submodule and overlay files
+@@ -105,12 +107,14 @@ COPY --chown=dev:sdvr --chmod=0755 data/vss-core/vss.json /home/dev/ws/vss.json
+ COPY --chown=dev:sdvr --chmod=0755 data/vss-core/default_vss.json /home/dev/ws/default_vss.json
+ COPY requirements.txt .
+ COPY --chown=dev:sdvr --chmod=0755 kuksa-syncer /home/dev/ws/kuksa-syncer/
++COPY --chown=dev:sdvr mw_com_provider/generated/mw_com_provider_config.json /home/dev/mw_com_provider/generated/mw_com_provider_config.json
++COPY --chown=dev:sdvr mw_com_config.json /home/dev/mw_com_config.json
+ COPY --chown=dev:sdvr --chmod=0755 mock /home/dev/ws/mock/
+ COPY mosquitto-no-auth.conf /etc/mosquitto/mosquitto-no-auth.conf
+ COPY --chown=dev:sdvr --chmod=0755 start_services.sh /start_services.sh
+ RUN sed -i 's/\r$//' /start_services.sh
+ 
+-ENV PYTHONPATH="/home/dev/python-packages/:${PYTHONPATH}"
++ENV PYTHONPATH="/home/dev/python-packages"
+ 
+ # Re-install grpcio to ensure it's built for the target platform
+ RUN pip3 uninstall -y grpcio && pip3 install grpcio==1.64.1
+diff --git a/README.md b/README.md
+index b0693f6..0abc993 100644
+--- a/README.md
++++ b/README.md
+@@ -31,6 +31,26 @@ docker run -d --restart=always -e RUNTIME_PREFIX="Kit-" -e RUNTIME_NAME="MyRunti
+ 
+ Video instruction: [https://youtu.be/HQrsGY7XLU4](https://youtu.be/HQrsGY7XLU4)
+ 
++### Raspberry Pi ARM64 With MW COM
++
++Build from this directory; all required sources and configuration files are local:
++
++```bash
++docker buildx build --builder default --platform linux/arm64 --load \
++	-t sdv-runtime:raspberrypi .
++docker run -d --init --name sdv-runtime-pi --shm-size=256m \
++	-p 127.0.0.1:55556:55555 -p 127.0.0.1:3090:3090 \
++	-e RUNTIME_NAME=RaspberryPi-Python sdv-runtime:raspberrypi
++```
++
++ARM64 defaults to `DATABROKER_BACKEND=mw-com-dem-bin`; use
++`DATABROKER_BACKEND=databroker` to select the original binary instead. Only the
++selected backend is launched. The Python syncer, Python mocks, native Node.js,
++health check, and shutdown handling are retained; no C++ syncer is required.
++MW COM uses the packaged provider and SCORE JSON files, without `--vss`.
++External SCORE vehicle services and compatible IPC integration are still needed
++for live vehicle data; those services are not included in this image.
++
+ ### Arguments for setting runtime name
+ `$RUNTIME_NAME`: this is the ID to add your runtime to playground.digital.auto.
+ `$RUNTIME_PREFIX`: (Optional) Custom prefix for the runtime ID. Default is "Runtime-". Set to empty string for no prefix.
+diff --git a/start_services.sh b/start_services.sh
+index 8c7e965..a87110b 100755
+--- a/start_services.sh
++++ b/start_services.sh
+@@ -10,7 +10,27 @@
+ 
+ 
+ DISABLE_DATABROKER=${DISABLE_DATABROKER:-""}
+-DATABROKER_ARGS=${DATABROKER_ARGS:-""}
++DATABROKER_BIN=/app/databroker
++MW_COM_DEM_BIN=/app/mw-com-dem-bin
++DATABROKER_BACKEND=${DATABROKER_BACKEND:-"mw-com-dem-bin"}
++case "$DATABROKER_BACKEND" in
++    databroker)
++        SELECTED_DATABROKER_BIN="$DATABROKER_BIN"
++        DATABROKER_ARGS=${DATABROKER_ARGS:-""}
++        ;;
++    mw-com-dem-bin)
++        SELECTED_DATABROKER_BIN="$MW_COM_DEM_BIN"
++        DATABROKER_ARGS=${DATABROKER_ARGS:-"--address 0.0.0.0:55555 \
++            --provider-config /home/dev/mw_com_provider/generated/mw_com_provider_config.json \
++            --score-config /home/dev/mw_com_config.json \
++            --include-vss-path Vehicle.Speed \
++            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn"}
++        ;;
++    *)
++        echo "ERROR: invalid DATABROKER_BACKEND '$DATABROKER_BACKEND' (expected databroker or mw-com-dem-bin)"
++        exit 1
++        ;;
++esac
+ SYNCER_SERVER_URL=${SYNCER_SERVER_URL:-"https://kit.digitalauto.tech"}
+ VSS_DATA=${VSS_DATA:-""}
+ RUNTIME_NAME=${RUNTIME_NAME:-"VSS4.0"} # Display name on the playground
+@@ -72,7 +92,12 @@ log_kit_manager_container "CONTAINER_STARTING" "user=$(id -u -n)"
+ mosquitto -d -c /etc/mosquitto/mosquitto-no-auth.conf
+ 
+ if [ -z "$DISABLE_DATABROKER" ]; then
+-    /app/databroker $DATABROKER_ARGS & 
++    if [ ! -x "$SELECTED_DATABROKER_BIN" ]; then
++        echo "ERROR: $DATABROKER_BACKEND binary not found or not executable: $SELECTED_DATABROKER_BIN"
++        exit 1
++    fi
++    echo "Starting $DATABROKER_BACKEND: $SELECTED_DATABROKER_BIN"
++    "$SELECTED_DATABROKER_BIN" $DATABROKER_ARGS &
+     DATABROKER_PID=$!
+ fi
+ 
+diff --git a/mw_com_config.json b/mw_com_config.json
+new file mode 100644
+index 0000000..f8f53d8
+--- /dev/null
++++ b/mw_com_config.json
+@@ -0,0 +1,168 @@
++{
++  "serviceTypes": [
++    {
++      "serviceTypeName": "/vehicle_high_beam_tx",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "bindings": [
++        {
++          "binding": "SHM",
++          "serviceId": 17152,
++          "events": [
++            {
++              "eventName": "high_beam_state",
++              "eventId": 2115
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "serviceTypeName": "/vehicle_high_beam_rx",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "bindings": [
++        {
++          "binding": "SHM",
++          "serviceId": 17152,
++          "events": [
++            {
++              "eventName": "high_beam_state",
++              "eventId": 2116
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "serviceTypeName": "vehicle::VehicleDynamicsService",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "bindings": [
++        {
++          "binding": "SHM",
++          "serviceId": 6433,
++          "events": [
++            {
++              "eventName": "speed",
++              "eventId": 1
++            },
++            {
++              "eventName": "speedAck",
++              "eventId": 2
++            }
++          ]
++        }
++      ]
++    }
++  ],
++  "serviceInstances": [
++    {
++      "instanceSpecifier": "/vehicle_high_beam/local_tx",
++      "serviceTypeName": "/vehicle_high_beam_tx",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "instances": [
++        {
++          "instanceId": 4096,
++          "asil-level": "QM",
++          "binding": "SHM",
++          "events": [
++            {
++              "eventName": "high_beam_state",
++              "numberOfSampleSlots": 10,
++              "maxSubscribers": 3
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "instanceSpecifier": "/vehicle_high_beam/network_rx",
++      "serviceTypeName": "/vehicle_high_beam_rx",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "instances": [
++        {
++          "instanceId": 4097,
++          "asil-level": "QM",
++          "binding": "SHM",
++          "events": [
++            {
++              "eventName": "high_beam_state",
++              "numberOfSampleSlots": 10,
++              "maxSubscribers": 3
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "instanceSpecifier": "/Vehicle/Service1/Instance",
++      "serviceTypeName": "vehicle::VehicleDynamicsService",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "instances": [
++        {
++          "instanceId": 1,
++          "asil-level": "QM",
++          "binding": "SHM",
++          "events": [
++            {
++              "eventName": "speed",
++              "numberOfSampleSlots": 30,
++              "maxSubscribers": 3
++            },
++            {
++              "eventName": "speedAck",
++              "numberOfSampleSlots": 30,
++              "maxSubscribers": 3
++            }
++          ]
++        }
++      ]
++    },
++    {
++      "instanceSpecifier": "/Vehicle/Service2/Instance",
++      "serviceTypeName": "vehicle::VehicleDynamicsService",
++      "version": {
++        "major": 1,
++        "minor": 0
++      },
++      "instances": [
++        {
++          "instanceId": 2,
++          "asil-level": "QM",
++          "binding": "SHM",
++          "events": [
++            {
++              "eventName": "speed",
++              "numberOfSampleSlots": 30,
++              "maxSubscribers": 3
++            },
++            {
++              "eventName": "speedAck",
++              "numberOfSampleSlots": 30,
++              "maxSubscribers": 3
++            }
++          ]
++        }
++      ]
++    }
++  ],
++  "global": {
++    "asil-level": "B"
++  }
++}
+diff --git a/mw_com_provider/generated/mw_com_provider_config.json b/mw_com_provider/generated/mw_com_provider_config.json
+new file mode 100644
+index 0000000..8dbb155
+--- /dev/null
++++ b/mw_com_provider/generated/mw_com_provider_config.json
+@@ -0,0 +1,82 @@
++{
++  "provider_name": "mw_com_provider",
++  "queue_capacity": 256,
++  "stale_after_ms": 1000,
++  "mappings": [
++    {
++      "signal_id": 42,
++      "vss_path": "Vehicle.Speed",
++      "datatype": "float",
++      "service": "VehicleDynamicsService",
++      "instance": "front_vehicle",
++      "member": "speed",
++      "field": "value",
++      "unit": "km/h",
++      "scale": 1.0,
++      "offset": 0.0,
++      "min": 0.0,
++      "max": 300.0,
++      "required_quality": "valid",
++      "direction": "datapoint",
++      "cycle_time_ms": 100
++    }
++,
++    {
++      "signal_id": 43,
++      "vss_path": "Vehicle.ADAS.CruiseControl.TargetSpeed",
++      "datatype": "double",
++      "service": "VehicleDynamicsService",
++      "instance": "front_vehicle",
++      "member": "target_speed",
++      "field": "value",
++      "unit": "km/h",
++      "scale": 1.0,
++      "offset": 0.0,
++      "min": 0.0,
++      "max": 180.0,
++      "required_quality": "valid",
++      "direction": "bidirectional",
++      "cycle_time_ms": 100
++    }
++,
++    {
++      "signal_id": 44,
++      "vss_path": "Vehicle.ADAS.CruiseControl.IsEnabled",
++      "datatype": "bool",
++      "service": "VehicleDynamicsService",
++      "instance": "front_vehicle",
++      "member": "cruise_control_enabled",
++      "field": "value",
++      "unit": null,
++      "scale": 1.0,
++      "offset": 0.0,
++      "min": null,
++      "max": null,
++      "required_quality": "valid",
++      "direction": "actuator",
++      "cycle_time_ms": 250
++    },
++    {
++      "signal_id": 45,
++      "vss_path": "Vehicle.Body.Lights.Beam.High.IsOn",
++      "datatype": "bool",
++      "service": "/vehicle_high_beam_rx",
++      "instance": "network_rx",
++      "member": "high_beam_state",
++      "field": null,
++      "unit": null,
++      "scale": 1.0,
++      "offset": 0.0,
++      "min": null,
++      "max": null,
++      "required_quality": "valid",
++      "direction": "bidirectional",
++      "actuation_binding": {
++        "service": "/vehicle_high_beam_tx",
++        "instance": "local_tx",
++        "member": "high_beam_state"
++      },
++      "cycle_time_ms": 100
++    }
++  ]
++}
+\ No newline at end of file
