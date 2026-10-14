@@ -1,0 +1,102 @@
+{
+    "service_types": [
+        {
+            "service_type_name": "vehicle_high_beam_tx",
+            "service_id": 17152,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "high_beam_state",
+                    "event_id": 33840,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {"max_message_size": 1},
+                    "eventgroup_ids": [33840]
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "/vehicle_high_beam/local_tx",
+                    "instance_id": 4096
+                }
+            ]
+        },
+        {
+            "service_type_name": "vehicle_high_beam_rx",
+            "service_id": 17152,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "high_beam_state",
+                    "event_id": 33841,
+                    "serialization_config_type": "BooleanSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [33841]
+                }
+            ],
+            "remote_service_instances": [
+                {
+                    "instance_specifier": "/vehicle_high_beam/network_rx",
+                    "instance_id": 4097
+                }
+            ]
+        },
+        {
+            "service_type_name": "vehicle::VehicleDynamicsService",
+            "service_id": 6433,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "speed",
+                    "event_id": 1,
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [1]
+                },
+                {
+                    "event_name": "speedAck",
+                    "event_id": 2,
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [2]
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "/Vehicle/Service1/Instance",
+                    "instance_id": 1
+                }
+            ]
+        },
+        {
+            "service_type_name": "vehicle::VehicleDynamicsService_rx",
+            "service_id": 6433,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "speed",
+                    "event_id": 1,
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [1]
+                },
+                {
+                    "event_name": "speedAck",
+                    "event_id": 2,
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [2]
+                }
+            ],
+            "remote_service_instances": [
+                {
+                    "instance_specifier": "/Vehicle/Service2/Instance",
+                    "instance_id": 2
+                }
+            ]
+        }
+    ]
+}

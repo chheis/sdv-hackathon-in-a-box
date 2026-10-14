@@ -1,0 +1,30 @@
+{
+  "routes": [
+    {
+      "name": "high_beam",
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33840,
+      "remoteEvent": 33841
+    },
+    {
+      "name": "low_beam",
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33842,
+      "remoteEvent": 33843
+    },
+    {
+      "name": "vehicle_dynamics",
+      "apiName": "Vehicle.speed",
+      "ackApiName": "Vehicle.speed",
+      "service": 6433,
+      "vehicleInstance": 1,
+      "remoteInstance": 2,
+      "vehicleEvent": 1,
+      "remoteEvent": 1
+    }
+  ]
+}
