@@ -1,0 +1,131 @@
+{
+  "serviceTypes": [
+    {
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 6433,
+          "events": [
+            {
+              "eventName": "speed",
+              "eventId": 1
+            },
+            {
+              "eventName": "speedAck",
+              "eventId": 2
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "global": {
+    "applicationID": 4001
+  },
+  "serviceInstances": [
+    {
+      "instanceSpecifier": "/Vehicle/Service1/Instance",
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 1,
+          "allowedConsumer": {
+            "QM": [4002, 0]
+          },
+          "allowedProvider": {
+            "QM": [4001, 0]
+          },
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "speed",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "speedAck",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/Vehicle/Service2/Instance",
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 2,
+          "allowedConsumer": {
+            "QM": [4002, 0]
+          },
+          "allowedProvider": {
+            "QM": [4001, 0]
+          },
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "speed",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "speedAck",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/Vehicle/Service3/Instance",
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 3,
+          "allowedConsumer": {
+            "QM": [4002, 0]
+          },
+          "allowedProvider": {
+            "QM": [4001, 0]
+          },
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "speed",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "speedAck",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
