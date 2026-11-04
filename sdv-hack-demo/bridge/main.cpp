@@ -23,6 +23,7 @@
 #include <vsomeip/vsomeip.hpp>
 
 #include "high_beam_udp_protocol.h"
+#include "sdv-hack-demo/bridge/service_registration.h"
 #include "sdv-hack-demo/include/speed_payload.h"
 #include "score/mw/lifecycle/report_running.h"
 #include "score/mw/log/logging.h"
@@ -36,14 +37,7 @@ constexpr std::uint16_t kDefaultRemotePort = 35001U;
 constexpr vsomeip::major_version_t kGatewayServiceMajorVersion = 1U;
 constexpr vsomeip::minor_version_t kGatewayServiceMinorVersion = 0U;
 
-struct Route {
-    std::string name;
-    vsomeip::service_t service;
-    vsomeip::instance_t vehicle_instance;
-    vsomeip::instance_t remote_instance;
-    vsomeip::event_t vehicle_event;
-    vsomeip::event_t remote_event;
-};
+using signal_bridge::Route;
 
 bool IsBooleanPayload(const std::shared_ptr<vsomeip::message>& message) {
     const auto payload = message->get_payload();
@@ -171,19 +165,26 @@ int main() {
         if (state != vsomeip::state_type_e::ST_REGISTERED) {
             return;
         }
+        signal_bridge::RegisterServices(*vehicle_side, *routes, vsomeip::event_type_e::ET_EVENT,
+                                       kGatewayServiceMajorVersion, kGatewayServiceMinorVersion);
         for (const auto& route : *routes) {
-            vehicle_side->request_service(route.service, route.vehicle_instance);
-            const std::set<vsomeip::eventgroup_t> remote_groups{route.remote_event};
-            vehicle_side->offer_event(route.service, route.remote_instance, route.remote_event, remote_groups,
-                                      vsomeip::event_type_e::ET_EVENT, std::chrono::milliseconds::zero(), false, true);
-            vehicle_side->offer_service(route.service, route.remote_instance, kGatewayServiceMajorVersion,
-                                        kGatewayServiceMinorVersion);
             score::mw::log::LogWarn() << "Bridge route ready: " << route.name;
         }
     });
 
     std::set<std::pair<vsomeip::service_t, vsomeip::instance_t>> registered_services;
     for (const auto& route : *routes) {
+        vehicle_side->register_subscription_status_handler(
+            route.service, route.vehicle_instance, route.vehicle_event, route.vehicle_event,
+            [route](vsomeip::service_t, vsomeip::instance_t, vsomeip::eventgroup_t,
+                    vsomeip::event_t, const std::uint16_t error) {
+                if (error == 0U) {
+                    score::mw::log::LogWarn() << "Bridge subscription ACK: " << route.name;
+                } else {
+                    score::mw::log::LogError() << "Bridge subscription NACK: " << route.name
+                                              << " error=" << error;
+                }
+            });
         if (registered_services.emplace(route.service, route.vehicle_instance).second) {
             vehicle_side->register_availability_handler(
             route.service, route.vehicle_instance,

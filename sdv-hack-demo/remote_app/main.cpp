@@ -64,6 +64,7 @@ bool ReadInputLine(std::istream& stream, int fd, std::string& line) {
 }
 
 constexpr auto kPublishPeriod = std::chrono::seconds{2};
+constexpr auto kBodySignalTestDelay = std::chrono::seconds{5};
 constexpr auto kGpioSamplePeriod = std::chrono::milliseconds{5};
 constexpr auto kGpioDebouncePeriod = std::chrono::milliseconds{30};
 constexpr char kSensorStateKey[] = "high_beam_state";
@@ -72,12 +73,74 @@ constexpr std::uint16_t kDefaultRemotePort = 35001U;
 
 struct Route {
     std::string name;
+    std::string api_name;
+    std::string datatype;
     std::uint16_t service;
     std::uint16_t vehicle_instance;
     std::uint16_t remote_instance;
     std::uint16_t vehicle_event;
     std::uint16_t remote_event;
 };
+
+bool PublishBooleanUpdate(const int socket_fd, const Route& route,
+                          const sockaddr_in& destination, const bool value) {
+    const auto frame = high_beam_udp::BooleanUpdate(
+        route.service, route.remote_instance, route.remote_event, value);
+    const auto encoded = high_beam_udp::Encode(frame);
+    const auto sent = sendto(socket_fd, encoded.data(), encoded.size(), 0,
+                             reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
+    if (sent != static_cast<ssize_t>(encoded.size())) {
+        score::mw::log::LogError() << "Remote failed to publish " << route.name
+                                  << ": " << std::string{std::strerror(errno)};
+        return false;
+    }
+    return true;
+}
+
+bool PublishAllBodySignals(const int socket_fd, const std::vector<Route>& routes,
+                           const sockaddr_in& destination) {
+    std::size_t published = 0;
+    for (const auto& route : routes) {
+        if (route.service != 17152U) {
+            continue;
+        }
+        const auto values = high_beam_udp::TestPayloads(route.datatype, route.api_name);
+        if (values.empty()) {
+            score::mw::log::LogError() << "Unsupported test datatype for " << route.api_name;
+            return false;
+        }
+        for (const auto& value : values) {
+            high_beam_udp::Frame frame{route.service, route.remote_instance, route.remote_event,
+                                       static_cast<std::uint8_t>(value.size()), {}};
+            std::copy(value.begin(), value.end(), frame.payload.begin());
+            const auto encoded = high_beam_udp::Encode(frame);
+            const auto sent = sendto(socket_fd, encoded.data(), encoded.size(), 0,
+                                     reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
+            if (sent != static_cast<ssize_t>(encoded.size())) {
+                score::mw::log::LogError() << "Failed to publish test value for " << route.api_name
+                                          << ": " << std::string{std::strerror(errno)};
+                return false;
+            }
+            if (route.datatype == "boolean") {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                          << "=" << (value[0] == 0U ? "false" : "true");
+            } else if (route.datatype == "uint8") {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                          << "=" << static_cast<unsigned int>(value[0]);
+            } else if (route.datatype == "string") {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name << "="
+                                          << std::string{value.begin(), value.end()};
+            } else {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                          << " payload_bytes=" << value.size();
+            }
+            ++published;
+            std::this_thread::sleep_for(kBodySignalTestDelay);
+        }
+    }
+    score::mw::log::LogWarn() << "Remote published " << published << " samples across 44 body signals";
+    return true;
+}
 
 std::optional<bool> ParseBooleanInput(const std::string& input) {
     if (input == "true") {
@@ -129,6 +192,8 @@ void PrintRemoteMenu() {
     Say("\nRemote menu\n"
         "1  High-beam (true/false)\n"
         "2  Vehicle.speed (number)\n"
+        "3  Vehicle.Body.Lights.Parking.IsOn (true/false)\n"
+        "4  Publish test values for all 44 body signals\n"
         "q  Quit remote app\n"
         "Select: ");
 }
@@ -375,7 +440,9 @@ std::optional<std::vector<Route>> LoadRoutes() {
         const auto document = nlohmann::json::parse(input);
         std::vector<Route> routes;
         for (const auto& item : document.at("routes")) {
-            routes.push_back(Route{item.at("name").get<std::string>(), item.at("service").get<std::uint16_t>(),
+            const auto name = item.at("name").get<std::string>();
+            routes.push_back(Route{name, item.value("apiName", name), item.value("datatype", std::string{}),
+                                   item.at("service").get<std::uint16_t>(),
                                    item.at("vehicleInstance").get<std::uint16_t>(),
                                    item.at("remoteInstance").get<std::uint16_t>(),
                                    item.at("vehicleEvent").get<std::uint16_t>(),
@@ -423,6 +490,10 @@ int main() {
         score::mw::log::LogError() << "Route configuration has no high_beam route";
         return 1;
     }
+    const auto parking_lights = std::find_if(routes->begin(), routes->end(), [](const Route& route) {
+        return route.name == "parking_lights";
+    });
+    std::atomic<int> parking_state{-1};
     const char* const configured_kvs_dir = std::getenv("HIGH_BEAM_KVS_DIR");
     const std::string kvs_dir = configured_kvs_dir != nullptr && configured_kvs_dir[0] != '\0'
                                     ? configured_kvs_dir
@@ -492,7 +563,8 @@ int main() {
         });
     }
     std::thread input_thread([led_output, &outbound_state, &sensor_store, &routes, &bridge_address, udp_socket,
-                              &outbound_changed, &outbound_mutex, &outbound_generation]() {
+                              &outbound_changed, &outbound_mutex, &outbound_generation,
+                              parking_lights, &parking_state]() {
             std::ifstream terminal_input{"/dev/tty"};
             const int terminal_fd = terminal_input.is_open() ? open("/dev/tty", O_RDONLY | O_CLOEXEC) : -1;
             const int input_fd = terminal_fd >= 0 ? terminal_fd : STDIN_FILENO;
@@ -549,7 +621,37 @@ int main() {
                     PrintRemoteMenu();
                     continue;
                 }
-                score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, or q.";
+                if (input == "3") {
+                    if (parking_lights == routes->end()) {
+                        score::mw::log::LogError() << "Route configuration has no parking_lights route";
+                        PrintRemoteMenu();
+                        continue;
+                    }
+                    Say("Vehicle.Body.Lights.Parking.IsOn value (true/false): ");
+                    if (!ReadInputLine(input_stream, input_fd, input)) {
+                        break;
+                    }
+                    const auto value = ParseBooleanInput(input);
+                    if (!value.has_value()) {
+                        score::mw::log::LogWarn() << "Invalid parking-light input. Enter true or false.";
+                        PrintRemoteMenu();
+                        continue;
+                    }
+                    parking_state.store(value.value() ? 1 : 0);
+                    if (PublishBooleanUpdate(udp_socket, *parking_lights, bridge_address, value.value())) {
+                        score::mw::log::LogWarn() << "Remote published Vehicle.Body.Lights.Parking.IsOn="
+                                                  << value.value();
+                    }
+                    PrintRemoteMenu();
+                    continue;
+                }
+                if (input == "4") {
+                    Say("Publishing test values for all configured body signals...\n");
+                    (void)PublishAllBodySignals(udp_socket, *routes, bridge_address);
+                    PrintRemoteMenu();
+                    continue;
+                }
+                score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, 3, 4, or q.";
             }
             if (terminal_fd >= 0) {
                 close(terminal_fd);
@@ -561,7 +663,7 @@ int main() {
         });
     std::thread receive_thread([udp_socket, &routes, &bridge_address, led_output, &sensor_store,
                                 &outbound_state, &outbound_changed, &outbound_mutex,
-                                &outbound_generation]() {
+                                &outbound_generation, &parking_state]() {
         std::array<std::uint8_t, high_beam_udp::kFrameSize> bytes{};
         std::optional<double> last_logged_speed;
         while (running.load()) {
@@ -588,6 +690,15 @@ int main() {
             const char* const sender_address =
                 inet_ntop(AF_INET, &sender.sin_addr, sender_ip, sizeof(sender_ip));
             if (route->name != "high_beam") {
+                if (route->name == "parking_lights") {
+                    if (frame->payload_size != 1U || frame->payload[0] > 1U) {
+                        score::mw::log::LogError() << "Remote rejected malformed parking-light command";
+                        continue;
+                    }
+                    parking_state.store(frame->payload[0]);
+                    score::mw::log::LogWarn() << "Remote received Vehicle.Body.Lights.Parking.IsOn="
+                                              << (frame->payload[0] != 0U);
+                }
                 if (frame->payload_size == sizeof(double) + 1U) {
                     const double received_value = vehicle_dynamics_wire::DecodeSpeed(frame->payload.data());
                     if (!last_logged_speed.has_value() || last_logged_speed.value() != received_value) {
@@ -644,6 +755,10 @@ int main() {
         const auto frame = high_beam_udp::Encode(outbound);
         (void)sendto(udp_socket, frame.data(), frame.size(), 0,
                      reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
+        const int parking_value = parking_state.load();
+        if (parking_lights != routes->end() && parking_value >= 0) {
+            (void)PublishBooleanUpdate(udp_socket, *parking_lights, bridge_address, parking_value != 0);
+        }
         next_publish = std::chrono::steady_clock::now() + kPublishPeriod;
     }
     input_thread.join();

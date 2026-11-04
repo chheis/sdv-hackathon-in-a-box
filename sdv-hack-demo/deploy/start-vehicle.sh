@@ -15,7 +15,7 @@ fi
 
 export HIGH_BEAM_BIND_IP=0.0.0.0
 export SIGNAL_ROUTE_CONFIG="${root}/signal_routes.json"
-vehicle_app_mode="${VEHICLE_APP_MODE:-legacy}"
+vehicle_app_mode="${VEHICLE_APP_MODE:-combined}"
 export HIGH_BEAM_COMMAND_MODE="${HIGH_BEAM_COMMAND_MODE:-kuksa}"
 case "$HIGH_BEAM_COMMAND_MODE" in
     kuksa) export KUKSA_HIGH_BEAM_ACTUATION=1 ;;
@@ -43,7 +43,7 @@ vsomeip_lib_dir="$(find "${root}/someipd.runfiles" -name libvsomeip3.so.3 -print
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${root}:${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-stale_pattern='someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo|start_kuksa'
+stale_pattern='someipd|gatewayd|vehicle_high_beam|body_signal_test_app|databroker-mw-com|start_kuksa'
 # Stop a previous launcher's KUKSA retry loop first, otherwise it respawns the broker and steals the port.
 pkill -KILL -f 'start_kuksa' 2>/dev/null || true
 pkill -TERM -f "${stale_pattern}" 2>/dev/null || true
@@ -54,7 +54,9 @@ for attempt in $(seq 1 20); do
     sleep 0.25
 done
 pkill -KILL -f "${stale_pattern}" 2>/dev/null || true
-ensure_broker_port_free
+if [[ "${vehicle_app_mode}" != signals ]]; then
+    ensure_broker_port_free
+fi
 rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
 
 # mw::com (LoLa) shared-memory ring buffers and the gateway's counterpart SHM
@@ -148,12 +150,10 @@ start_kuksa() {
         sleep 0.5
     done
     for attempt in $(seq 1 5); do
-        "${root}/databroker-mw-com-demo" \
+        "${root}/databroker-mw-com" \
             --address 0.0.0.0:55555 \
-            --provider-config "${root}/mw_com_provider/generated/mw_com_provider_config.json" \
-            --score-config "${root}/mw_com_config.json" \
-            --include-vss-path Vehicle.Speed \
-            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn && return 0
+            --provider-config "${root}/mw_com_provider/generated/gateway_provider_config.json" \
+            --score-config "${root}/mw_com_config.json" && return 0
         echo "KUKSA exited (attempt ${attempt}/5); retrying." >&2
         sleep 2
     done
@@ -161,7 +161,12 @@ start_kuksa() {
 }
 
 case "${vehicle_app_mode}" in
-    legacy)
+    signals)
+        exec "${root}/body_signal_test_app" \
+            --configuration "${root}/mw_com_config.json" \
+            --routes "${root}/signal_routes.json" "$@"
+        ;;
+    combined)
         export -f start_kuksa
         export root
         setsid nohup bash -c start_kuksa >"${root}/kuksa.log" 2>&1 < /dev/null 9>&- &
@@ -190,11 +195,8 @@ case "${vehicle_app_mode}" in
         fi
         exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
         ;;
-    kuksa)
-        start_kuksa
-        ;;
     *)
-        echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'legacy' or 'kuksa'." >&2
+        echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'combined' or 'signals'." >&2
         exit 2
         ;;
 esac

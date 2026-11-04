@@ -106,8 +106,15 @@ void RemoteNetworkService::setup_vsomeip() {
         vsomeip_app_->register_message_handler(
             service_id, instance_id, vsomeip_event_id,
             [this, socom_event_id, vsomeip_event_id](const std::shared_ptr<vsomeip::message>& msg) {
+                score::mw::log::LogWarn()
+                    << "[someipd] Network received: event_id=0x"
+                    << score::mw::log::LogHex16{vsomeip_event_id}
+                    << " payload_size=" << msg->get_payload()->get_length();
                 auto maybe_payload = server_connector_->allocate_event_payload(socom_event_id);
                 if (!maybe_payload.has_value()) {
+                    score::mw::log::LogError()
+                        << "[someipd] Network payload allocation failed: event_id=0x"
+                        << score::mw::log::LogHex16{vsomeip_event_id};
                     return;
                 }
                 auto& payload = *maybe_payload;
@@ -166,6 +173,11 @@ void RemoteNetworkService::setup_vsomeip() {
                     score::mw::log::LogError()
                         << "[someipd] RemoteNetworkService - Failed to update event "
                         << socom_event_id << ": " << result.error().Message();
+                } else {
+                    score::mw::log::LogWarn()
+                        << "[someipd] Network->IPC: event_id=0x"
+                        << score::mw::log::LogHex16{vsomeip_event_id}
+                        << " payload_size=" << size;
                 }
             });
 

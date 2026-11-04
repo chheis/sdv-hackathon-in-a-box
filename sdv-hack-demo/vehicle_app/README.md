@@ -1,5 +1,35 @@
 # Vehicle High-Beam mw::com Showcase
 
+## All-Signal Test App
+
+`body_signal_test_app` is a separate, automatic round-trip test for all 44
+configured body, door, and powertrain signals. It uses the existing route configuration and prints
+`TX`, `RX`, `PASS`/`FAIL`, and an overall summary. The original vehicle menu
+application remains unchanged.
+
+After rebuilding and redeploying both archives, start the remote app normally,
+then run this on the vehicle Pi:
+
+```bash
+VEHICLE_APP_MODE=signals ~/sdv-demo/run/start-vehicle.sh
+```
+
+Use only on an isolated test rig: the sweep sends actuator values and does
+not restore previous values when interrupted. This mode skips KUKSA and the
+legacy publisher to avoid a competing Tx service. A matching received value
+confirms transport, not physical actuator operation. See the parent
+[all-signal test instructions](../README.md#test-all-44-signals) for test
+values, timeouts, expected output, and host checks.
+
+For a stack already running without another body-signal Tx publisher:
+
+```bash
+cd ~/sdv-demo
+./body_signal_test_app --configuration mw_com_config.json --routes signal_routes.json
+```
+
+## Original Vehicle App
+
 This application publishes and consumes only the VSS signal
 `Vehicle.Body.Lights.Beam.High.IsOn` through the SOME/IP gateway. Service,
 instance, and member identifiers are transport configuration owned by `mw::com`
@@ -13,15 +43,15 @@ republished back to the network:
 
 | Direction | Service | Event | Instance |
 | --- | --- | --- | --- |
-| Vehicle app to network | `vehicle_high_beam_tx` (`0x4300`) | `0x8430` | `0x1000` |
-| Network to Vehicle app | `vehicle_high_beam_rx` (`0x4300`) | `0x8431` | `0x1001` |
+| Vehicle app to network | `body_control_module_tx` (`0x4300`) | `0x8430` | `0x1000` |
+| Network to Vehicle app | `body_control_module_rx` (`0x4300`) | `0x8431` | `0x1001` |
 
 `gatewayd` consumes the Tx service through a `mw::com::GenericProxy` and exposes
 the Rx service through a `mw::com::GenericSkeleton`. `someipd` owns the local
 vSomeIP network stack.
 
 The shared-memory binding is resolved as `service / instance / member`:
-`/vehicle_high_beam_tx` or `/vehicle_high_beam_rx` / their configured instance
+`/body_control_module_tx` or `/body_control_module_rx` / their configured instance
 specifier / `high_beam_state`.
 
 ## Build

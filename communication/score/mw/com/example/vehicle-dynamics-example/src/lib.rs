@@ -1,6 +1,8 @@
+pub mod body_control;
 pub mod consumer;
 pub mod producer;
 
+pub use body_control::{BodyControlModuleConsumer, BodyControlModuleProducer};
 pub use consumer::VehicleMonitorConsumer;
 pub use producer::VehicleMonitorProducer;
 

@@ -13,6 +13,63 @@ SPDX-License-Identifier: Apache-2.0
 
 # COM API Example - Vehicle Monitor Application
 
+## Body and Door C++ Interfaces
+
+The C++ definitions in [com-api-gen/vehicle_gen.h](com-api-gen/vehicle_gen.h)
+also expose all 37 configured body and door signals through `HighBeamTx` and
+`VehicleHighBeamRx`. The existing names are retained for compatibility.
+For example, `horn_state`, `rear_trunk_position_state`, and
+`front_wiping_mode_state` are available as typed events on both interfaces.
+The vehicle-dynamics Rust application's speed behavior is unchanged.
+
+Use the header-only Bazel target `:vehicle_gen_types` in the `com-api-gen`
+package for C++ consumers. The existing `:vehicle_gen_cpp` target additionally
+exports the interfaces to the Rust FFI registry.
+
+| Interface | Instance Specifier | Sample Layout |
+| --- | --- | --- |
+| `HighBeamTx` | `/vehicle_high_beam/local_tx` | `HighBeamCommand` for boolean/uint8, `BodySignalText` for strings |
+| `VehicleHighBeamRx` | `/vehicle_high_beam/network_rx` | `HighBeamState` for booleans, `HighBeamCommand` for uint8, `BodySignalText` for strings |
+
+`HighBeamState.value` is a native boolean. Pre-serialized samples contain
+`size` and `data`: set `size = 1` for boolean/uint8 values, or the UTF-8 byte
+count (at most 32, no terminating NUL) for `BodySignalText`. Boolean wire
+values must be `0` or `1`. Position, intensity, and fluid-level values are
+unsigned percentages. The buffer payload starts at byte offset 16, matching
+the gateway serializer's shared-memory layout.
+
+The example's [etc/mw_com_config.json](etc/mw_com_config.json) contains the
+matching Tx/Rx services and event IDs. From the integration workspace root,
+run `python3 sdv-hack-demo/configure_signals.py --write` to synchronize this
+config and the C++ event list from the body-signal manifest. This adds service
+definitions, not automatic body-signal publishers or application controls.
+
+From the `communication` workspace, run the interface regression tests:
+
+```bash
+bazel test //score/mw/com/example/vehicle-dynamics-example/com-api-gen:body_signal_interface_test
+```
+
+## BodyControlModuleService Integration
+
+The `body-control-module-example` target uses the BodyControl service contract
+and a separate LoLa instance for datapoints and actuator feedback. Start the
+KUKSA composition from `kuksa-databroker/`:
+
+```bash
+cargo run -p databroker-mw-com
+```
+
+Then, from the `communication` workspace, run:
+
+```bash
+bazel run //score/mw/com/example/vehicle-dynamics-example:body-control-module-example -- --run-mode both
+```
+
+The producer publishes washer, rain, door-child-lock, and vehicle-speed
+datapoints. The consumer subscribes to horn actuation. The existing
+`vehicle-dynamics-example` target and gateway service instances remain separate.
+
 ## Overview
 
 This example application demonstrates the COM (Communication Middleware) API capabilities using a Vehicle Monitor scenario. It showcases producer-consumer communication patterns with the Lola runtime, featuring both synchronous and asynchronous operations.
