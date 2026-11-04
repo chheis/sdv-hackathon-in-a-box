@@ -5,13 +5,13 @@
 This project demonstrates how VSS signals can be exchanged between two edge devices: a Raspberry Pi running the vehicle-side SDV stack and an Arduino-based remote device. The Raspberry Pi uses Eclipse S-CORE mw::com shared memory, a SOME/IP gateway, and a compact UDP transport for communication with the remote device.
 
 ## System Block diagram 
-![Flow](../images/System_Block_Diagram.jpg)
+![Flow](/images/System_Block_Diagram.jpg)
 
 ## Internal architecture
-![Flow](../images/Architecture.jpg)
+![Flow](/images/Architecture.jpg)
 
 ## Dataflow
-![Flow](../images/signalflow.png)
+![Flow](/images/signalflow.png)
 
 The supported signal is:
 
