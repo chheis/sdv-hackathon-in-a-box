@@ -10,7 +10,7 @@
             "id": "0x0100"
         },
         {
-            "name": "vehicle_high_beam_bridge_vehicle_side",
+            "name": "udp_bridge_vehicle_side",
             "id": "0x0204"
         }
     ],

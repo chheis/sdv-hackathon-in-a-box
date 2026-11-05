@@ -36,7 +36,7 @@ cc_binary(
 )
 
 cc_binary(
-    name = "vehicle_high_beam_mw_com",
+    name = "score_app",
     srcs = ["main.cc"],
     data = ["@score_someip_gateway//score/gatewayd:etc/mw_com_config.json"],
     visibility = ["//visibility:public"],

@@ -13,26 +13,26 @@ if ! flock -n 9; then
     exit 1
 fi
 
-export HIGH_BEAM_BIND_IP=0.0.0.0
-export HIGH_BEAM_BRIDGE_IP="${HIGH_BEAM_VEHICLE_IP}"
-export HIGH_BEAM_KVS_DIR="${root}/state"
+export SDV_BIND_IP=0.0.0.0
+export SDV_BRIDGE_IP="${SDV_VEHICLE_IP}"
+export SDV_KVS_DIR="${root}/state"
 
-pkill -TERM -f 'vehicle_high_beam_remote_app' 2>/dev/null || true
+pkill -TERM -x remote_app 2>/dev/null || true
 for attempt in $(seq 1 20); do
-	if ! pgrep -f 'vehicle_high_beam_remote_app' >/dev/null; then
+	if ! pgrep -x remote_app >/dev/null; then
 		break
 	fi
 	sleep 0.25
 done
-pkill -KILL -f 'vehicle_high_beam_remote_app' 2>/dev/null || true
+pkill -KILL -x remote_app 2>/dev/null || true
 
 if ss -Hlun | grep -Eq ':35001([[:space:]]|$)'; then
 	echo "UDP port 35001 is still in use; stop the owning process and retry." >&2
 	exit 1
 fi
 
-vsomeip_lib_dir="$(find "${root}/vehicle_high_beam_remote_app.runfiles" -name libvsomeip3.so.3 -printf '%h\n' -quit)"
+vsomeip_lib_dir="$(find "${root}/remote_app.runfiles" -name libvsomeip3.so.3 -printf '%h\n' -quit)"
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-exec "${root}/vehicle_high_beam_remote_app"
+exec "${root}/remote_app"

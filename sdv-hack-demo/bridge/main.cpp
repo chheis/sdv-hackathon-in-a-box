@@ -1,4 +1,4 @@
-// Copy of inc_someip_gateway/tests/integration/vehicle_high_beam_bridge/main.cpp
+// Copy of the upstream SOME/IP bridge integration example.
 // Packaged here so the demo can be built and packaged entirely from sdv-hack-demo.
 
 #include <algorithm>
@@ -138,15 +138,15 @@ int main() {
     }
 
     auto vehicle_side = vsomeip::runtime::get()->create_application(
-        "vehicle_high_beam_bridge_vehicle_side", vehicle_domain_config);
+        "udp_bridge_vehicle_side", vehicle_domain_config);
     if (!vehicle_side || !vehicle_side->init()) {
         score::mw::log::LogError() << "Failed to initialize bridge SOME/IP applications";
         return 1;
     }
-    const std::uint16_t bridge_port = ResolvePort("HIGH_BEAM_BRIDGE_UDP_PORT", kDefaultBridgePort);
-    const std::uint16_t remote_port = ResolvePort("HIGH_BEAM_REMOTE_UDP_PORT", kDefaultRemotePort);
-    const std::string bind_ip = ResolveAddress("HIGH_BEAM_BIND_IP", "0.0.0.0");
-    const std::string remote_ip = ResolveAddress("HIGH_BEAM_REMOTE_IP", "127.0.0.1");
+    const std::uint16_t bridge_port = ResolvePort("SDV_BRIDGE_UDP_PORT", kDefaultBridgePort);
+    const std::uint16_t remote_port = ResolvePort("SDV_REMOTE_UDP_PORT", kDefaultRemotePort);
+    const std::string bind_ip = ResolveAddress("SDV_BIND_IP", "0.0.0.0");
+    const std::string remote_ip = ResolveAddress("SDV_REMOTE_IP", "127.0.0.1");
     const int udp_socket = CreateUdpSocket(bridge_port, bind_ip);
     if (udp_socket < 0) {
         score::mw::log::LogError() << "Failed to bind bridge UDP port " << bridge_port;
@@ -155,7 +155,7 @@ int main() {
     sockaddr_in remote_address{};
     remote_address.sin_family = AF_INET;
     if (!SetAddress(remote_address, remote_ip)) {
-        score::mw::log::LogError() << "Invalid HIGH_BEAM_REMOTE_IP: " << remote_ip;
+        score::mw::log::LogError() << "Invalid SDV_REMOTE_IP: " << remote_ip;
         close(udp_socket);
         return 1;
     }
@@ -284,4 +284,3 @@ int main() {
     close(udp_socket);
     return 0;
 }
-

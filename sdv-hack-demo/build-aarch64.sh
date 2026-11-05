@@ -16,9 +16,9 @@ bazel build --config=aarch64-linux --config=sdv-demo \
   //sdv-hack-demo:gateway_config \
   //sdv-hack-demo/serializer:serializer_shim \
   //sdv-hack-demo/serializer:base_serializer \
-  //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com \
+  //sdv-hack-demo/vehicle_app:score_app \
   //sdv-hack-demo/vehicle_app:body_signal_test_app \
-  //sdv-hack-demo/bridge:vehicle_high_beam_bridge \
-  //sdv-hack-demo/remote_app:vehicle_high_beam_remote_app
+  //sdv-hack-demo/bridge:udp_bridge \
+  //sdv-hack-demo/remote_app:remote_app
 
 "${repo_root}/kuksa-databroker/scripts/build-rpi-aarch64.sh"

@@ -1,4 +1,4 @@
-# Vehicle High-Beam mw::com Showcase
+# score_app: Vehicle High-Beam mw::com Showcase
 
 ## All-Signal Test App
 
@@ -82,10 +82,10 @@ UDP ports.
 ```bash
 cp sdv-hack-demo/deploy/network.env sdv-hack-demo/deploy/network.env.local
 # Edit values inside to:
-# HIGH_BEAM_VEHICLE_IP=127.0.0.1
-# HIGH_BEAM_REMOTE_IP=127.0.0.1
-# HIGH_BEAM_BRIDGE_UDP_PORT=35000
-# HIGH_BEAM_REMOTE_UDP_PORT=35001
+# SDV_VEHICLE_IP=127.0.0.1
+# SDV_REMOTE_IP=127.0.0.1
+# SDV_BRIDGE_UDP_PORT=35000
+# SDV_REMOTE_UDP_PORT=35001
 nano sdv-hack-demo/deploy/network.env.local
 source sdv-hack-demo/deploy/network.env.local
 ```
@@ -101,19 +101,19 @@ bazel build --host_copt=-std=gnu11 //sdv-hack-demo/...
 Terminal A — bridge (vehicle-side):
 
 ```bash
-bazel run //sdv-hack-demo:vehicle_high_beam_bridge
+bazel run //sdv-hack-demo/bridge:udp_bridge
 ```
 
 Terminal B — remote sensor (simulated remote):
 
 ```bash
-bazel run //sdv-hack-demo:vehicle_high_beam_remote_app
+bazel run //sdv-hack-demo/remote_app:remote_app
 ```
 
 Terminal C — vehicle app (foreground):
 
 ```bash
-bazel run //sdv-hack-demo:vehicle_app
+bazel run //sdv-hack-demo/vehicle_app:score_app
 ```
 
 If `bazel run` target names differ, locate the binaries under `bazel-bin/`

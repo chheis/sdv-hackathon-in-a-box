@@ -13,7 +13,7 @@ if ! flock -n 9; then
     exit 1
 fi
 
-export HIGH_BEAM_BIND_IP=0.0.0.0
+export SDV_BIND_IP=0.0.0.0
 export SIGNAL_ROUTE_CONFIG="${root}/signal_routes.json"
 vehicle_app_mode="${VEHICLE_APP_MODE:-combined}"
 export HIGH_BEAM_COMMAND_MODE="${HIGH_BEAM_COMMAND_MODE:-kuksa}"
@@ -36,14 +36,14 @@ ensure_broker_port_free() {
 }
 
 cp "${root}/vsomeip-gateway-services.json" "${root}/vsomeip-vehicle.json"
-sed -i "s/\"unicast\": \"127.0.0.1\"/\"unicast\": \"${HIGH_BEAM_VEHICLE_IP}\"/" \
+sed -i "s/\"unicast\": \"127.0.0.1\"/\"unicast\": \"${SDV_VEHICLE_IP}\"/" \
     "${root}/vsomeip-vehicle.json"
 
 vsomeip_lib_dir="$(find "${root}/someipd.runfiles" -name libvsomeip3.so.3 -printf '%h\n' -quit)"
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${root}:${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-stale_pattern='someipd|gatewayd|vehicle_high_beam|body_signal_test_app|databroker-mw-com|start_kuksa'
+stale_pattern='someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)|body_signal_test_app|databroker-mw-com-demo|start_kuksa'
 # Stop a previous launcher's KUKSA retry loop first, otherwise it respawns the broker and steals the port.
 pkill -KILL -f 'start_kuksa' 2>/dev/null || true
 pkill -TERM -f "${stale_pattern}" 2>/dev/null || true
@@ -115,7 +115,7 @@ done
 
 VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
 VEHICLE_DOMAIN_CONFIG="${root}/vsomeip-vehicle.json" \
-    setsid nohup "${root}/vehicle_high_beam_bridge" >"${root}/bridge.log" 2>&1 < /dev/null 9>&- &
+    setsid nohup "${root}/udp_bridge" >"${root}/bridge.log" 2>&1 < /dev/null 9>&- &
 disown
 
 # Give gatewayd time to complete its someipd handshake and create the
@@ -131,7 +131,7 @@ require_gateway_alive() {
             tail -n 20 "${root}/${name}.log" >&2 || true
             pkill -KILL -x someipd 2>/dev/null || true
             pkill -KILL -x gatewayd 2>/dev/null || true
-            pkill -KILL -f vehicle_high_beam_bridge 2>/dev/null || true
+            pkill -KILL -f udp_bridge 2>/dev/null || true
             return 1
         fi
     done
@@ -150,7 +150,7 @@ start_kuksa() {
         sleep 0.5
     done
     for attempt in $(seq 1 5); do
-        "${root}/databroker-mw-com" \
+        "${root}/databroker-mw-com-demo" \
             --address 0.0.0.0:55555 \
             --provider-config "${root}/mw_com_provider/generated/gateway_provider_config.json" \
             --score-config "${root}/mw_com_config.json" && return 0
@@ -193,7 +193,7 @@ case "${vehicle_app_mode}" in
                 exit 1
             fi
         fi
-        exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
+        exec "${root}/score_app" --configuration "${root}/mw_com_config.json"
         ;;
     *)
         echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'combined' or 'signals'." >&2
