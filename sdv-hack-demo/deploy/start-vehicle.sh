@@ -24,12 +24,7 @@ if [[ "${vehicle_app_mode}" != signals && ! -x "${root}/databroker-mw-com" ]]; t
     echo "Required broker executable missing or not executable: ${root}/databroker-mw-com. Redeploy the complete vehicle archive." >&2
     exit 1
 fi
-export HIGH_BEAM_COMMAND_MODE="${HIGH_BEAM_COMMAND_MODE:-kuksa}"
-case "$HIGH_BEAM_COMMAND_MODE" in
-    kuksa) export KUKSA_HIGH_BEAM_ACTUATION=1 ;;
-    direct) export KUKSA_HIGH_BEAM_ACTUATION=0 ;;
-    *) echo "HIGH_BEAM_COMMAND_MODE must be kuksa or direct" >&2; exit 2 ;;
-esac
+export KUKSA_HIGH_BEAM_ACTUATION=1
 export VDB_ADDRESS="${VDB_ADDRESS:-127.0.0.1:55555}"
 
 ensure_broker_port_free() {
@@ -72,6 +67,8 @@ rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
 # started subscriber immediately replays every stale sample left over from
 # earlier runs (seen as a burst of old/garbled values on (re)subscription).
 rm -f /dev/shm/lola-*-0000000000017152-* /dev/shm/lola-*-0000000000006433-* \
+      /dev/shm/lola-*-0000000000017153-* \
+      /dev/shm/lola-*-0000000000032766-32766 \
       /dev/shm/*vehicle_high_beam* /dev/shm/*VehicleDynamicsService* 2>/dev/null || true
 
 if ss -Hlun | grep -Eq ':35000([[:space:]]|$)'; then
@@ -152,7 +149,8 @@ start_kuksa() {
     # shared memory is not there yet. Wait for it, then let the retry loop cover any remaining race.
     for attempt in $(seq 1 60); do
         if [[ -e /dev/shm/lola-data-0000000000006433-00002 && \
-              -e /dev/shm/lola-data-0000000000017152-04097 ]]; then
+              -e /dev/shm/lola-data-0000000000017152-04097 && \
+              -e /dev/shm/lola-data-0000000000017153-04097 ]]; then
             break
         fi
         sleep 0.5
@@ -161,7 +159,7 @@ start_kuksa() {
         "${root}/databroker-mw-com" \
             --address 0.0.0.0:55555 \
             --provider-config "${root}/mw_com_provider/generated/gateway_provider_config.json" \
-            --score-config "${root}/mw_com_config.json" && return 0
+            --score-config "${root}/score_app_mw_com_config.json" && return 0
         echo "KUKSA exited (attempt ${attempt}/5); retrying." >&2
         sleep 2
     done
@@ -180,28 +178,27 @@ case "${vehicle_app_mode}" in
         setsid nohup bash -c start_kuksa >"${root}/kuksa.log" 2>&1 < /dev/null 9>&- &
         kuksa_launcher_pid=$!
         disown
-        if [[ "$HIGH_BEAM_COMMAND_MODE" == kuksa ]]; then
-            broker_host="${VDB_ADDRESS%:*}"
-            broker_port="${VDB_ADDRESS##*:}"
-            broker_ready=false
-            # Budget: up to 30 s for gateway shared memory, then KUKSA start-up and retries.
-            for attempt in $(seq 1 240); do
-                if ! kill -0 "$kuksa_launcher_pid" 2>/dev/null; then
-                    echo "Demo broker exited during startup; see ${root}/kuksa.log" >&2
-                    exit 1
-                fi
-                if timeout 1 bash -c ':</dev/tcp/$1/$2' _ "$broker_host" "$broker_port" 2>/dev/null; then
-                    broker_ready=true
-                    break
-                fi
-                sleep 0.5
-            done
-            if [[ "$broker_ready" != true ]]; then
-                echo "KUKSA is not listening at $VDB_ADDRESS; see ${root}/kuksa.log" >&2
+        broker_host="${VDB_ADDRESS#*://}"
+        broker_host="${broker_host%:*}"
+        broker_port="${VDB_ADDRESS##*:}"
+        broker_ready=false
+        # Budget: up to 30 s for gateway shared memory, then KUKSA start-up and retries.
+        for attempt in $(seq 1 240); do
+            if ! kill -0 "$kuksa_launcher_pid" 2>/dev/null; then
+                echo "Demo broker exited during startup; see ${root}/kuksa.log" >&2
                 exit 1
             fi
+            if timeout 1 bash -c ':</dev/tcp/$1/$2' _ "$broker_host" "$broker_port" 2>/dev/null; then
+                broker_ready=true
+                break
+            fi
+            sleep 0.5
+        done
+        if [[ "$broker_ready" != true ]]; then
+            echo "KUKSA is not listening at $VDB_ADDRESS; see ${root}/kuksa.log" >&2
+            exit 1
         fi
-        exec "${root}/score_app" --configuration "${root}/mw_com_config.json"
+        exec "${root}/score_app" --configuration "${root}/score_app_mw_com_config.json"
         ;;
     *)
         echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'combined' or 'signals'." >&2

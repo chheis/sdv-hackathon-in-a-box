@@ -1,5 +1,4 @@
-score_com::interface!(interface HighBeamTx { Id = "HighBeamTx",
-    high_beam_state: Event<HighBeamCommand>,
+score_com::interface!(interface BodyControlModuleTx { Id = "BodyControlModuleTx",
     horn_state: Event<HighBeamCommand>,
     high_beam_switch_state: Event<HighBeamCommand>,
     parking_lights_state: Event<HighBeamCommand>,
@@ -44,8 +43,10 @@ score_com::interface!(interface HighBeamTx { Id = "HighBeamTx",
     engine_stop_start_enabled_state: Event<HighBeamCommand>,
     transmission_performance_mode_state: Event<BodySignalText>,
 });
-score_com::interface!(interface VehicleHighBeamRx { Id = "VehicleHighBeamRx",
-    high_beam_state: Event<HighBeamState>,
+score_com::interface!(interface HighBeamTx { Id = "HighBeamTx",
+    high_beam_state: Event<HighBeamCommand>,
+});
+score_com::interface!(interface BodyControlModuleRx { Id = "BodyControlModuleRx",
     horn_state: Event<HighBeamState>,
     high_beam_switch_state: Event<HighBeamState>,
     parking_lights_state: Event<HighBeamState>,
@@ -90,17 +91,19 @@ score_com::interface!(interface VehicleHighBeamRx { Id = "VehicleHighBeamRx",
     engine_stop_start_enabled_state: Event<HighBeamState>,
     transmission_performance_mode_state: Event<BodySignalText>,
 });
+score_com::interface!(interface VehicleHighBeamRx { Id = "VehicleHighBeamRx",
+    high_beam_state: Event<HighBeamState>,
+});
 score_com::interface!(interface VehicleDynamicsService { Id = "VehicleDynamicsService",
 speed: Event<SpeedSample>, speedAck: Event<SpeedAck>, });
 impl GatewayScoreRuntimeAdapter {
 fn subscribe_body(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
-let consumer = self.runtime()?.find_service::<VehicleHighBeamRxInterface>(
+let consumer = self.runtime()?.find_service::<BodyControlModuleRxInterface>(
 FindServiceSpecifier::Specific(Self::instance(binding)?)).get_available_instances()
 .map_err(|error| Self::error("body discovery", error))?.into_iter().next()
 .ok_or_else(|| MwComProviderError::Transport("gateway body Rx service is unavailable".into()))?
 .build().map_err(|error| Self::error("body consumer", error))?;
 let subscription = match binding.member_name {
-"high_beam_state" => GatewaySubscription::Bool(consumer.high_beam_state.subscribe(4).map_err(|error| Self::error("body subscribe", error))?),
 "horn_state" => GatewaySubscription::Bool(consumer.horn_state.subscribe(4).map_err(|error| Self::error("body subscribe", error))?),
 "high_beam_switch_state" => GatewaySubscription::Bool(consumer.high_beam_switch_state.subscribe(4).map_err(|error| Self::error("body subscribe", error))?),
 "parking_lights_state" => GatewaySubscription::Bool(consumer.parking_lights_state.subscribe(4).map_err(|error| Self::error("body subscribe", error))?),
@@ -147,10 +150,18 @@ let subscription = match binding.member_name {
 _ => return Err(MwComProviderError::Transport("unknown gateway body event".into())),
 };
 self.subscriptions.push(SubscriptionEntry::new(binding, subscription)); Ok(()) }
+fn subscribe_high_beam(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
+let consumer = self.runtime()?.find_service::<VehicleHighBeamRxInterface>(
+FindServiceSpecifier::Specific(Self::instance(binding)?)).get_available_instances()
+.map_err(|error| Self::error("high-beam discovery", error))?.into_iter().next()
+.ok_or_else(|| MwComProviderError::Transport("gateway high-beam Rx service is unavailable".into()))?
+.build().map_err(|error| Self::error("high-beam consumer", error))?;
+let subscription = consumer.high_beam_state.subscribe(4)
+.map_err(|error| Self::error("high-beam subscribe", error))?;
+self.subscriptions.push(SubscriptionEntry::new(binding, GatewaySubscription::Bool(subscription))); Ok(()) }
 fn send_body(&mut self, binding: ScoreBinding<'_>, value: &MwComValue) -> Result<(), MwComProviderError> {
-let producer = self.tx.as_ref().ok_or_else(|| MwComProviderError::Transport("gateway Tx is disabled".into()))?;
+let producer = self.body_tx.as_ref().ok_or_else(|| MwComProviderError::Transport("gateway Tx is disabled".into()))?;
 match binding.member_name {
-"high_beam_state" => producer.high_beam_state.send(HighBeamCommand::encode(value, "boolean")?).map_err(|error| Self::error("gateway publish", error)),
 "horn_state" => producer.horn_state.send(HighBeamCommand::encode(value, "boolean")?).map_err(|error| Self::error("gateway publish", error)),
 "high_beam_switch_state" => producer.high_beam_switch_state.send(HighBeamCommand::encode(value, "boolean")?).map_err(|error| Self::error("gateway publish", error)),
 "parking_lights_state" => producer.parking_lights_state.send(HighBeamCommand::encode(value, "boolean")?).map_err(|error| Self::error("gateway publish", error)),
@@ -195,4 +206,13 @@ match binding.member_name {
 "engine_stop_start_enabled_state" => producer.engine_stop_start_enabled_state.send(HighBeamCommand::encode(value, "boolean")?).map_err(|error| Self::error("gateway publish", error)),
 "transmission_performance_mode_state" => producer.transmission_performance_mode_state.send(BodySignalText::encode(value, "string")?).map_err(|error| Self::error("gateway publish", error)),
 _ => Err(MwComProviderError::Transport("unknown gateway Tx event".into())),
-} } }
+} }
+fn send_high_beam(&mut self, binding: ScoreBinding<'_>, value: &MwComValue) -> Result<(), MwComProviderError> {
+let producer = self.high_beam_tx.as_ref().ok_or_else(|| MwComProviderError::Transport("gateway high-beam Tx is disabled".into()))?;
+if binding.member_name != "high_beam_state" {
+return Err(MwComProviderError::Transport("unknown gateway high-beam Tx event".into()));
+}
+producer.high_beam_state.send(HighBeamCommand::encode(value, "boolean")?)
+.map_err(|error| Self::error("high-beam publish", error))
+}
+}

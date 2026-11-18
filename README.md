@@ -23,14 +23,16 @@ Feedback:
 remote application -> network -> UDP bridge -> someipd -> gatewayd -> mw::com -> KUKSA Databroker -> KUKSA client -> Velocitas app
 ```
 
-**`score_app` flow :**
+**Vehicle menu command and feedback flow:**
 
 ```text
-  score app-> mw::com -> gatewayd -> someipd -> UDP bridge -> network -> remote application -> remote signal state / GPIO LED
+  score_app -> private mw::com/SHM command ingress -> mw_com_provider
+    -> KUKSA Databroker actuator target -> mw_com_provider Tx -> gatewayd -> someipd
+    -> UDP bridge -> network -> remote application -> GPIO LED
 
 Feedback:
 remote application -> network -> UDP bridge -> someipd -> gatewayd -> mw::com
-  -> score_app
+  -> score_app (feedback subscription) and mw_com_provider -> KUKSA Databroker current value
 ```
 
 
@@ -141,21 +143,29 @@ bash inc_someip_gateway/tools/make_local_aarch64_toolchain.sh
 export AARCH64_TOOLCHAIN_ROOT="$HOME/aarch64_toolchain"
 ```
 
-### Enable ARM64 Docker emulation
+### ARM64 Docker builds
 
-On the **Host Machine **, register ARM64 emulation:
-
-```bash
-docker run --privileged --rm tonistiigi/binfmt --install arm64
-docker run --rm --platform linux/arm64 ubuntu:22.04 uname -m
-```
+On x86-64, the runtime build creates or reuses the `sdv-val2-builder`
+Buildx container for ARM64 emulation without changing the default builder.
+Set `BUILDX_BUILDER` explicitly to use a different builder.
 ## Build and Package
 
 ```bash
 cd ~/sdv-hackathon-in-a-box
-bash sdv-hack-demo/build-aarch64.sh 
-bash sdv-hack-demo/package-aarch64.sh
+bash sdv-hack-demo/scripts/build-aarch64.sh
+bash sdv-hack-demo/scripts/package-aarch64.sh
 ```
+
+The checked-in Databroker core remains unchanged. Provider/composition builds
+use standard broker APIs: actuator targets are commands, while current values
+are state. No feedback-origin patch or temporary modified broker is required.
+The demo-owned Cargo wrapper only forwards Cargo arguments. Packaging paths are
+unchanged. For the change rationale and standalone
+test commands, see the [provider integration notes](kuksa-databroker/mw_com_provider/README.md#integration-differences-and-build-isolation).
+
+Rebuild the runtime image together with the native provider when upgrading:
+the runtime now writes actuator targets based on metadata. An older image that
+publishes actuator current values will no longer issue middleware commands.
 
 | Output | Contents |
 | --- | --- |
@@ -169,8 +179,8 @@ reported error, then retry the runtime build and packaging on the host machine:
 
 ```bash
 cd ~/sdv-hackathon-in-a-box
-bash sdv-hack-demo/build-runtime-aarch64.sh &&
-  bash sdv-hack-demo/package-aarch64.sh
+bash sdv-hack-demo/scripts/build-runtime-aarch64.sh &&
+  bash sdv-hack-demo/scripts/package-aarch64.sh
 ```
 
 `Note` : Do not package stale binaries or an old runtime image after a failed build.
@@ -361,7 +371,7 @@ The remote hardware uses these GPIO connections:
 ## Signal Configuration and Development
 
 The [body manifest](sdv-hack-demo/config/body_signals.json) defines body routes,
-types, VSS paths, and event IDs. The [generator](sdv-hack-demo/configure_signals.py)
+types, VSS paths, and event IDs. The [generator](sdv-hack-demo/tools/configure_signals.py)
 updates the gateway/LoLa/vsomeip configuration, route file, communication
 example declarations, and KUKSA provider bindings.
 
@@ -369,9 +379,9 @@ After editing the manifest, run on the **host machine**:
 
 ```bash
 cd ~/sdv-hackathon-in-a-box
-python3 sdv-hack-demo/configure_signals.py --write
-python3 sdv-hack-demo/configure_signals.py
-python3 sdv-hack-demo/configure_signals_test.py
+python3 sdv-hack-demo/tools/configure_signals.py --write
+python3 sdv-hack-demo/tools/configure_signals.py
+python3 sdv-hack-demo/tools/configure_signals_test.py
 ```
 
 The second command checks generated snapshots without writing them.

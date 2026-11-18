@@ -194,6 +194,7 @@ impl GeneratedReceiveSubscription {
                         instance: instance_name.clone(),
                         member: "front_washer_fluid_level".into(),
                         value: MwComValue::U64(sample.value as u64),
+                        kind: crate::transport::MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: SignalQuality::Valid,
                     });
@@ -225,6 +226,7 @@ impl GeneratedReceiveSubscription {
                         instance: instance_name.clone(),
                         member: "front_washer_fluid_is_low".into(),
                         value: MwComValue::Bool(sample.value),
+                        kind: crate::transport::MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: SignalQuality::Valid,
                     });
@@ -256,6 +258,7 @@ impl GeneratedReceiveSubscription {
                         instance: instance_name.clone(),
                         member: "rain_intensity".into(),
                         value: MwComValue::U64(sample.value as u64),
+                        kind: crate::transport::MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: SignalQuality::Valid,
                     });
@@ -288,6 +291,7 @@ impl GeneratedReceiveSubscription {
                         instance: instance_name.clone(),
                         member: "driver_door_child_lock_is_active".into(),
                         value: MwComValue::Bool(sample.value),
+                        kind: crate::transport::MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: SignalQuality::Valid,
                     });
@@ -319,6 +323,7 @@ impl GeneratedReceiveSubscription {
                         instance: instance_name.clone(),
                         member: "vehicle_speed".into(),
                         value: MwComValue::F64(sample.value as f64),
+                        kind: crate::transport::MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: SignalQuality::Valid,
                     });

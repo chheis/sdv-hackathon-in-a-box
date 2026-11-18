@@ -164,10 +164,15 @@ After generation, review `mw_com_provider/generated/mw_com_provider_config.json`
 
 From the Kuksa Databroker workspace root:
 
+Use ordinary Cargo against the unchanged broker core. Actuator targets and
+standard actuation callbacks are commands; current-value publishes are state.
+No feedback-origin extension or modified build copy is required. See the
+[integration rationale](../README.md#integration-differences-and-build-isolation).
+Native artifacts must match the Cargo
+target architecture; type-checking alone does not validate native linking.
+
 ```sh
-cargo test -p mw_com_provider provider::tests
-cargo test -p mw_com_provider score_bindings::tests
-cargo test -p mw_com_provider --test e2e_stubbed_score
+cargo test -p mw_com_provider --lib --tests
 cargo check -p mw_com_provider
 ```
 

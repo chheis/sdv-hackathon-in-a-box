@@ -6,7 +6,6 @@
 
 #include <array>
 #include <chrono>
-#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -16,8 +15,6 @@
 #include <string_view>
 #include <thread>
 #include <utility>
-#include <grpcpp/grpcpp.h>
-#include "kuksa/val/v2/val.grpc.pb.h"
 
 #include "score/mw/com/runtime.h"
 #include "score/mw/com/types.h"
@@ -27,36 +24,35 @@
 
 namespace {
 
-constexpr std::string_view kTxInstanceSpecifier{"/vehicle_high_beam/local_tx"};
 constexpr std::string_view kRxInstanceSpecifier{"/vehicle_high_beam/network_rx"};
 constexpr std::string_view kEventName{"high_beam_state"};
+constexpr std::string_view kCommandInstanceSpecifier{"/score_app_command/menu_tx"};
+constexpr std::string_view kCommandEventName{"high_beam_command"};
 constexpr std::string_view kDynamicsTxInstanceSpecifier{"/Vehicle/Service1/Instance"};
 constexpr std::string_view kDynamicsRxInstanceSpecifier{"/Vehicle/Service2/Instance"};
 constexpr std::string_view kSpeedEventName{"speed"};
 constexpr std::string_view kSpeedAckEventName{"speedAck"};
 constexpr std::string_view kSpeedApiName{"Vehicle.speed"};
-constexpr std::size_t kPayloadSize{1U};
 constexpr std::size_t kMaxSampleCount{4U};
+constexpr std::size_t kCommandPayloadSize{1U};
 
-// Must match the native layout used by gatewayd's VehicleDynamicsSerializer.
+using RawCommand = score::someip_gateway::serializer::PreSerializedData<0>;
+
 struct SpeedSample {
     double value;
     std::uint8_t quality;
 };
 
-using PreSerializedData = score::someip_gateway::serializer::PreSerializedData<0>;
-static_assert(alignof(PreSerializedData) == 16U);
-static_assert(offsetof(PreSerializedData, data) == 16U);
-static_assert(score::someip_gateway::serializer::get_size_of_pre_serialized_data(1U) == 32U);
-
-constexpr score::mw::com::DataTypeMetaInfo kDataTypeMetaInfo{
-    score::someip_gateway::serializer::get_size_of_pre_serialized_data(kPayloadSize),
-    alignof(PreSerializedData)};
-constexpr std::array<score::mw::com::EventInfo, 1> kEvents{{{kEventName, kDataTypeMetaInfo}}};
 constexpr score::mw::com::DataTypeMetaInfo kSpeedMetaInfo{sizeof(SpeedSample), alignof(SpeedSample)};
+constexpr score::mw::com::DataTypeMetaInfo kCommandMetaInfo{
+    score::someip_gateway::serializer::get_size_of_pre_serialized_data(kCommandPayloadSize),
+    alignof(RawCommand)};
 constexpr std::array<score::mw::com::EventInfo, 2> kDynamicsEvents{{
     {kSpeedEventName, kSpeedMetaInfo},
     {kSpeedAckEventName, kSpeedMetaInfo},
+}};
+constexpr std::array<score::mw::com::EventInfo, 1> kCommandEvents{{
+    {kCommandEventName, kCommandMetaInfo},
 }};
 
 std::string ResolveConfigurationPath(const std::string& path) {
@@ -137,9 +133,7 @@ class VehicleHighBeamApplication {
             return EXIT_FAILURE;
         }
         score::mw::com::runtime::InitializeRuntime(score::mw::com::runtime::RuntimeConfiguration{manifest});
-        const char* command_mode = std::getenv("HIGH_BEAM_COMMAND_MODE");
-        broker_commands_ = command_mode != nullptr && std::string_view{command_mode} == "kuksa";
-        if ((!broker_commands_ && !OfferLocalService()) || !SubscribeToRemoteService() || !OfferDynamicsService() ||
+        if (!OfferCommandIngressService() || !SubscribeToRemoteService() || !OfferDynamicsService() ||
             !SubscribeToDynamicsService()) {
             Cleanup();
             return EXIT_FAILURE;
@@ -192,27 +186,31 @@ class VehicleHighBeamApplication {
     }
 
    private:
-    bool OfferLocalService() {
-        const auto instance = score::mw::com::InstanceSpecifier::Create(std::string{kTxInstanceSpecifier});
+    bool OfferCommandIngressService() {
+        const auto instance = score::mw::com::InstanceSpecifier::Create(
+            std::string{kCommandInstanceSpecifier});
         if (!instance.has_value()) {
             return false;
         }
         score::mw::com::GenericSkeletonServiceElementInfo create_params;
-        create_params.events = kEvents;
+        create_params.events = kCommandEvents;
         auto skeleton_result = score::mw::com::GenericSkeleton::Create(instance.value(), create_params);
         if (!skeleton_result.has_value()) {
+            score::mw::log::LogError() << "Cannot create score_app command ingress service";
             return false;
         }
-        tx_skeleton_.emplace(std::move(skeleton_result).value());
-        if (!tx_skeleton_->OfferService().has_value()) {
+        command_skeleton_.emplace(std::move(skeleton_result).value());
+        if (!command_skeleton_->OfferService().has_value()) {
+            score::mw::log::LogError() << "Cannot offer score_app command ingress service";
             return false;
         }
-        auto events = tx_skeleton_->GetEvents();
-        const auto event = events.find(kEventName);
-        if (event == events.cend()) {
+        auto events = command_skeleton_->GetEvents();
+        const auto command = events.find(kCommandEventName);
+        if (command == events.cend()) {
+            score::mw::log::LogError() << "Missing high-beam command event";
             return false;
         }
-        tx_event_ = &event->second;
+        command_event_ = &command->second;
         return true;
     }
 
@@ -271,46 +269,24 @@ class VehicleHighBeamApplication {
     }
 
     void PublishLocalState(const bool value) {
-        if (broker_commands_) {
-            const char* configured_address = std::getenv("VDB_ADDRESS");
-            const std::string address = configured_address == nullptr ? "127.0.0.1:55555" : configured_address;
-            auto client = kuksa::val::v2::VAL::NewStub(
-                grpc::CreateChannel(address, grpc::InsecureChannelCredentials()));
-            grpc::ClientContext context;
-            context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds{3});
-            kuksa::val::v2::ActuateRequest request;
-            request.mutable_signal_id()->set_path("Vehicle.Body.Lights.Beam.High.IsOn");
-            request.mutable_value()->set_bool_(value);
-            kuksa::val::v2::ActuateResponse response;
-            score::mw::log::LogWarn() << "Vehicle menu requested High.IsOn=" << value << " through KUKSA";
-            const auto status = client->Actuate(&context, request, &response);
-            if (!status.ok()) {
-                score::mw::log::LogError() << "KUKSA rejected vehicle command: " << status.error_message();
-            } else {
-                score::mw::log::LogWarn() << "KUKSA accepted vehicle command High.IsOn=" << value
-                                        << " (not remote output acknowledgement)";
-            }
+        if (command_event_ == nullptr) {
+            score::mw::log::LogError() << "score_app command ingress is unavailable";
             return;
         }
-        if (tx_event_ == nullptr) {
-            score::mw::log::LogError() << "Vehicle Tx service is unavailable";
-            return;
-        }
-        auto sample_result = tx_event_->Allocate();
+        auto sample_result = command_event_->Allocate();
         if (!sample_result.has_value()) {
-            score::mw::log::LogError() << "Cannot allocate Vehicle high-beam sample";
+            score::mw::log::LogError() << "Cannot allocate high-beam command sample";
             return;
         }
         auto sample = std::move(sample_result).value();
-        auto* const data = static_cast<PreSerializedData*>(sample.Get());
-        data->size = kPayloadSize;
-        data->data[0] = value ? std::byte{0x01} : std::byte{0x00};
-        if (!tx_event_->Send(std::move(sample)).has_value()) {
-            score::mw::log::LogError() << "Cannot publish Vehicle high-beam state";
+        auto* const raw = static_cast<RawCommand*>(sample.Get());
+        raw->size = kCommandPayloadSize;
+        raw->data[0] = static_cast<std::byte>(value ? 1U : 0U);
+        if (!command_event_->Send(std::move(sample)).has_value()) {
+            score::mw::log::LogError() << "Cannot publish high-beam command to mw::com";
             return;
         }
-        score::mw::log::LogWarn() << "Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn="
-                      << (value ? "true" : "false");
+        score::mw::log::LogWarn() << "Vehicle menu published high-beam command to mw::com shared memory";
     }
 
     void PublishSpeed(const double value, const std::uint8_t quality) {
@@ -435,24 +411,23 @@ class VehicleHighBeamApplication {
             (void)dynamics_rx_speed_event_->UnsetReceiveHandler();
             dynamics_rx_speed_event_->Unsubscribe();
         }
-        if (tx_skeleton_.has_value()) {
-            tx_skeleton_->StopOfferService();
-        }
         if (dynamics_skeleton_.has_value()) {
             dynamics_skeleton_->StopOfferService();
+        }
+        if (command_skeleton_.has_value()) {
+            command_skeleton_->StopOfferService();
         }
     }
 
     std::string configuration_path_;
-    bool broker_commands_{false};
-    std::optional<score::mw::com::GenericSkeleton> tx_skeleton_;
+    std::optional<score::mw::com::GenericSkeleton> command_skeleton_;
     std::optional<score::mw::com::GenericSkeleton> dynamics_skeleton_;
     std::optional<score::mw::com::GenericProxy> rx_proxy_;
     std::optional<score::mw::com::GenericProxy> dynamics_proxy_;
-    score::mw::com::GenericSkeletonEvent* tx_event_{nullptr};
     score::mw::com::GenericProxyEvent* rx_event_{nullptr};
     score::mw::com::GenericSkeletonEvent* dynamics_speed_event_{nullptr};
     score::mw::com::GenericProxyEvent* dynamics_rx_speed_event_{nullptr};
+    score::mw::com::GenericSkeletonEvent* command_event_{nullptr};
 };
 
 int main(int argc, char* argv[]) {

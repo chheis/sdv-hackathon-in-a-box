@@ -20,7 +20,7 @@ cc_test(
 cc_binary(
     name = "udp_bridge",
     srcs = ["main.cpp"],
-    data = ["//sdv-hack-demo:signal_routes.json"],
+    data = ["//sdv-hack-demo:config/signal_routes.json"],
     visibility = ["//visibility:public"],
     deps = [
         ":service_registration",

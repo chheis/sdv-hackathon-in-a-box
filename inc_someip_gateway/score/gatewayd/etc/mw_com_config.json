@@ -108,10 +108,6 @@
           "serviceId": 17152,
           "events": [
             {
-              "eventName": "high_beam_state",
-              "eventId": 2115
-            },
-            {
               "eventName": "horn_state",
               "eventId": 2119
             },
@@ -298,10 +294,6 @@
           "binding": "SHM",
           "serviceId": 17152,
           "events": [
-            {
-              "eventName": "high_beam_state",
-              "eventId": 2116
-            },
             {
               "eventName": "horn_state",
               "eventId": 2120
@@ -500,6 +492,44 @@
           ]
         }
       ]
+    },
+    {
+      "serviceTypeName": "/vehicle_high_beam_tx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 17153,
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "eventId": 2115
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "serviceTypeName": "/vehicle_high_beam_rx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 17153,
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "eventId": 2116
+            }
+          ]
+        }
+      ]
     }
   ],
   "serviceInstances": [
@@ -627,11 +657,6 @@
           "asil-level": "QM",
           "binding": "SHM",
           "events": [
-            {
-              "eventName": "high_beam_state",
-              "numberOfSampleSlots": 10,
-              "maxSubscribers": 3
-            },
             {
               "eventName": "horn_state",
               "numberOfSampleSlots": 10,
@@ -864,11 +889,6 @@
           "asil-level": "QM",
           "binding": "SHM",
           "events": [
-            {
-              "eventName": "high_beam_state",
-              "numberOfSampleSlots": 10,
-              "maxSubscribers": 3
-            },
             {
               "eventName": "horn_state",
               "numberOfSampleSlots": 10,
@@ -1136,6 +1156,50 @@
             {
               "eventName": "speedAck",
               "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/vehicle_high_beam/local_tx",
+      "serviceTypeName": "/vehicle_high_beam_tx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 4096,
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/vehicle_high_beam/network_rx",
+      "serviceTypeName": "/vehicle_high_beam_rx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 4097,
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }
           ]

@@ -15,23 +15,23 @@ An API typically supports either *Target Value* or *Actuation Value*, not both!
 
 Use of the *Target Value*  perspective is deprecated!
 
-### mw::com provider publish forwarding
+### mw::com provider command and state separation
 
-The `databroker-mw-com` composition additionally forwards current-value
-updates for configured actuator and bidirectional mappings through its
-in-process provider. VAL v1 CLI `publish` therefore updates the readable
-current value and queues an outbound middleware command. Explicit targets
-remain supported; when both fields change in one update, the target wins.
-Only mappings accepting actuation participate; sensor-only publishes are
-not outbound commands.
+The `databroker-mw-com` composition forwards VAL v1 actuator-target updates and
+standard VAL v2 actuation callbacks for mappings accepting actuation. Initial
+target subscription snapshots are ignored. Current-value writes, including VAL
+v1 CLI `publish`, update state only and never queue middleware commands.
 
-Received middleware state uses the broker's internal provider-feedback
-notification origin. It still updates current values and notifies clients,
-but is not re-sent by the command forwarder. Initial subscription snapshots
-are ignored. This prevents bidirectional feedback loops without a separate
-process or changes to the VAL wire protocol. Current-value reads confirm the
-broker value, not physical command completion. Repeated current publishes
-follow the entry's change policy (`Continuous` entries notify every publish).
+Received middleware state uses ordinary `update_entries` to update current
+values and notify clients. Since current values are not command inputs, feedback
+cannot echo into outbound commands. No custom notification origin, broker API,
+or temporary broker patch is required.
+
+The runtime queries entry metadata and writes actuator targets, while preserving
+sensor/attribute current-value writes. Current-value reads confirm reported
+state, not command acceptance or physical completion. A successful target write
+does not itself update the current value. See the
+[provider integration notes](../mw_com_provider/README.md#integration-differences-and-build-isolation).
 
 ## Overview
 

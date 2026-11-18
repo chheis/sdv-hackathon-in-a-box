@@ -31,15 +31,33 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
             assert_eq!(binding.sample_size, 16);
             continue;
         }
+        if mapping.vss_path == "Vehicle.Body.Lights.Beam.High.IsOn" {
+            assert_eq!(mapping.direction, Direction::Bidirectional);
+            assert_eq!(mapping.service, "/vehicle_high_beam_rx");
+            assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
+            assert_eq!(binding.sample_size, 1);
+            let target = mapping.actuation_binding.as_ref().unwrap();
+            assert_eq!(target.service, "/vehicle_high_beam_tx");
+            let tx = find_score_binding(&target.service, &target.instance, &target.member).unwrap();
+            assert_eq!(tx.instance_specifier, "/vehicle_high_beam/local_tx");
+            assert_eq!(tx.member_name, "high_beam_state");
+            assert_eq!(tx.sample_size, 32);
+            continue;
+        }
         if mapping.direction == Direction::Datapoint {
-            assert_eq!(binding.instance_specifier, "/body_control_module/network_rx");
+            assert_eq!(
+                binding.instance_specifier,
+                "/body_control_module/network_rx"
+            );
             assert!(mapping.actuation_binding.is_none());
             assert_eq!(
                 binding.sample_size,
                 match mapping.datatype {
                     VssDataType::Bool => 1,
                     VssDataType::Uint8 => 32,
-                    VssDataType::String | VssDataType::Int16 | VssDataType::Float
+                    VssDataType::String
+                    | VssDataType::Int16
+                    | VssDataType::Float
                     | VssDataType::FloatArray => 48,
                     _ => panic!("unsupported sensor datatype"),
                 }
@@ -55,7 +73,10 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
             continue;
         }
         assert_eq!(mapping.direction, Direction::Bidirectional);
-        assert_eq!(binding.instance_specifier, "/body_control_module/network_rx");
+        assert_eq!(
+            binding.instance_specifier,
+            "/body_control_module/network_rx"
+        );
         let target = mapping.actuation_binding.as_ref().unwrap();
         let tx = find_score_binding(&target.service, &target.instance, &target.member).unwrap();
         assert_eq!(tx.instance_specifier, "/body_control_module/local_tx");
@@ -63,7 +84,9 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
         assert_eq!(tx.sample_alignment, 16);
         assert_eq!(
             tx.sample_size,
-            if mapping.datatype == VssDataType::String {
+            if mapping.datatype == VssDataType::String
+                && mapping.vss_path != "Vehicle.Body.Lights.Brake.IsActive"
+            {
                 48
             } else {
                 32
@@ -74,6 +97,8 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
             match mapping.datatype {
                 VssDataType::Bool => 1,
                 VssDataType::Uint8 => 32,
+                VssDataType::String if mapping.vss_path == "Vehicle.Body.Lights.Brake.IsActive" =>
+                    1,
                 VssDataType::String => 48,
                 _ => panic!("unsupported body datatype"),
             }
@@ -96,6 +121,9 @@ fn existing_body_targets_and_current_values_use_distinct_directions() {
         let value = match mapping.datatype {
             VssDataType::Bool => DataValue::Bool(true),
             VssDataType::Uint8 => DataValue::Uint32(50),
+            VssDataType::String if mapping.vss_path == "Vehicle.Body.Lights.Brake.IsActive" => {
+                DataValue::String("ACTIVE".into())
+            }
             VssDataType::String => DataValue::String("FAST".into()),
             _ => panic!("unsupported body datatype"),
         };
@@ -105,7 +133,10 @@ fn existing_body_targets_and_current_values_use_distinct_directions() {
                 data_value: value.clone(),
             })
             .unwrap();
-        assert_eq!(command.service, "/body_control_module_tx");
+        assert_eq!(
+            command.service,
+            mapping.actuation_binding.as_ref().unwrap().service
+        );
         assert_eq!(command.instance, "local_tx");
         if mapping.direction == Direction::Actuator {
             let encoded = BodySignalText::encode(&command.value, "string").unwrap();
@@ -123,6 +154,11 @@ fn existing_body_targets_and_current_values_use_distinct_directions() {
                 .unwrap()
                 .decode()
                 .unwrap(),
+            VssDataType::String if mapping.vss_path == "Vehicle.Body.Lights.Brake.IsActive" => {
+                let raw = HighBeamCommand::encode(&command.value, "boolean").unwrap();
+                assert_eq!(raw.size, 1);
+                MwComValue::Bool(raw.data[0] != 0)
+            }
             VssDataType::String => BodySignalText::encode(&command.value, "string")
                 .unwrap()
                 .decode()
@@ -135,6 +171,7 @@ fn existing_body_targets_and_current_values_use_distinct_directions() {
                 instance: mapping.instance.clone(),
                 member: mapping.member.clone(),
                 value: received,
+                kind: mw_com_provider::transport::MwComMessageKind::Datapoint,
                 source_timestamp: Some(SystemTime::now()),
                 quality: SignalQuality::Valid,
             })

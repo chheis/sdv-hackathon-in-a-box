@@ -7,17 +7,6 @@
             "service_version_minor": 0,
             "events": [
                 {
-                    "event_name": "high_beam_state",
-                    "event_id": 33840,
-                    "serialization_config_type": "NullSerializerConfig",
-                    "serialization_config": {
-                        "max_message_size": 1
-                    },
-                    "eventgroup_ids": [
-                        33840
-                    ]
-                },
-                {
                     "event_name": "horn_state",
                     "event_id": 33844,
                     "serialization_config_type": "NullSerializerConfig",
@@ -505,15 +494,6 @@
             "service_version_minor": 0,
             "events": [
                 {
-                    "event_name": "high_beam_state",
-                    "event_id": 33841,
-                    "serialization_config_type": "BooleanSerializerConfig",
-                    "serialization_config": {},
-                    "eventgroup_ids": [
-                        33841
-                    ]
-                },
-                {
                     "event_name": "horn_state",
                     "event_id": 33845,
                     "serialization_config_type": "BooleanSerializerConfig",
@@ -993,6 +973,54 @@
                 {
                     "instance_specifier": "/Vehicle/Service2/Instance",
                     "instance_id": 2
+                }
+            ]
+        },
+        {
+            "service_type_name": "vehicle_high_beam_tx",
+            "service_id": 17152,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "high_beam_state",
+                    "event_id": 33840,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33840
+                    ]
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "/vehicle_high_beam/local_tx",
+                    "instance_id": 4096
+                }
+            ]
+        },
+        {
+            "service_type_name": "vehicle_high_beam_rx",
+            "service_id": 17152,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "high_beam_state",
+                    "event_id": 33841,
+                    "serialization_config_type": "BooleanSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [
+                        33841
+                    ]
+                }
+            ],
+            "remote_service_instances": [
+                {
+                    "instance_specifier": "/vehicle_high_beam/network_rx",
+                    "instance_id": 4097
                 }
             ]
         }

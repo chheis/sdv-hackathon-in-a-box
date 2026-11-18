@@ -90,6 +90,14 @@ impl HighBeamCommand {
         }
         Ok(MwComValue::U64(u64::from(self.data[0])))
     }
+
+    pub fn decode_boolean(&self) -> Result<bool, MwComProviderError> {
+        match self.decode()? {
+            MwComValue::U64(0) => Ok(false),
+            MwComValue::U64(1) => Ok(true),
+            _ => Err(invalid("gateway boolean sample must be 0 or 1")),
+        }
+    }
 }
 
 impl BodySignalText {
@@ -204,9 +212,11 @@ mod tests {
             assert_eq!(sample.size, 1);
             assert_eq!(sample.data[0], u8::from(value));
             assert_eq!(sample.padding, [0; 8]);
+            assert_eq!(sample.decode_boolean().unwrap(), value);
         }
         let sample = HighBeamCommand::encode(&MwComValue::U64(100), "uint8").unwrap();
         assert_eq!(sample.decode().unwrap(), MwComValue::U64(100));
+        assert!(sample.decode_boolean().is_err());
         assert!(HighBeamCommand::encode(&MwComValue::U64(256), "uint8").is_err());
         assert!(HighBeamCommand::encode(&MwComValue::I64(-1), "uint8").is_err());
         assert!(HighBeamCommand::encode(&MwComValue::Bool(true), "uint8").is_err());

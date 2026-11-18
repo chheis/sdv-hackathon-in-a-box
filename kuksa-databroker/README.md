@@ -1,5 +1,9 @@
 # sdv-hackathon-in-a-box
 
+> This is a historical copy of the demo guide. Use the
+> [repository-root README](../README.md) and run its commands from the
+> repository root; the demo and S-CORE sources now live there.
+
 ## Overview
 
 This demo exchanges VSS signals between two Raspberry Pis. The vehicle Pi runs KUKSA Databroker, Eclipse S-CORE mw::com shared memory, a SOME/IP gateway, and a UDP bridge. The remote Pi runs a UDP application with a keyboard menu, GPIO switch, and LED.
@@ -108,10 +112,10 @@ Use `q` to exit each foreground app, then follow [Stop the demo](#stop-the-demo)
 - Linux x86_64, Bazel/Bazelisk, Python 3, SSH, and `scp`.
 - The full repository workspace, including `communication/` and `inc_someip_gateway/`, not just the demo folder.
 - ARM64 Bazel configuration `aarch64-linux` and the configured cross-toolchain, normally at `$HOME/aarch64_toolchain`.
-- The matching KUKSA integration checkout at `kuksa-databroker/` in the repository root, including `scripts/build-rpi-aarch64.sh`, the mw::com provider, and composition binary. This checkout is absent from this repository snapshot; obtain the matching integration sources before building. An arbitrary upstream KUKSA checkout is not a documented replacement.
+- The matching KUKSA integration checkout at `kuksa-databroker/` in the repository root, including the mw::com provider and composition binary. The demo-owned ARM64 helper is [build-rpi-aarch64.sh](../sdv-hack-demo/scripts/build-rpi-aarch64.sh). This checkout is absent from this repository snapshot; obtain the matching integration sources before building. An arbitrary upstream KUKSA checkout is not a documented replacement.
 - Network access to both Pis.
 
-The [build script](sdv-hack-demo/build-aarch64.sh) regenerates configs, builds both gateway daemons and demo targets, then invokes the KUKSA ARM64 build. [Dependency compatibility and serializer details](ARCHITECTURE.md) are documented separately.
+The [build script](../sdv-hack-demo/scripts/build-aarch64.sh) regenerates configs, builds both gateway daemons and demo targets, then invokes the KUKSA ARM64 build. [Dependency compatibility and serializer details](ARCHITECTURE.md) are documented separately.
 
 ### Raspberry Pis
 
@@ -130,23 +134,22 @@ sudo systemctl enable --now ssh
 
 ## Operating Modes
 
-`direct` is a command-routing setting within `combined`, not a value of `VEHICLE_APP_MODE`.
+The combined vehicle menu requests body-signal actuations through the packaged
+`databroker-cli`; the mw_com_provider is the sole body Tx publisher. The
+`score_app` executable itself has no KUKSA protobuf/gRPC build dependency.
 
 | Mode | Environment settings | Processes and body Tx owner |
 | --- | --- | --- |
-| `combined` (default) | `VEHICLE_APP_MODE=combined HIGH_BEAM_COMMAND_MODE=kuksa` | Gateway, bridge, KUKSA, vehicle menu; KUKSA owns body Tx |
-| `direct` | `VEHICLE_APP_MODE=combined HIGH_BEAM_COMMAND_MODE=direct` | Same processes; legacy vehicle app owns body Tx; KUKSA body mappings become read-only |
+| `combined` (default) | `VEHICLE_APP_MODE=combined` | Gateway, bridge, KUKSA, vehicle menu; mw_com_provider owns body Tx |
 | `signals` | `VEHICLE_APP_MODE=signals` | Gateway, bridge, all-signal tester; no KUKSA or regular vehicle menu; tester owns body Tx |
 
 Never run two publishers for `/body_control_module/local_tx`. Stop the current stack before switching modes. Keep the remote app running for round-trip testing.
 
-**Vehicle Pi, working directory: any directory, alternative direct launch:**
-
-```bash
-VEHICLE_APP_MODE=combined HIGH_BEAM_COMMAND_MODE=direct ~/sdv-demo/run/start-vehicle.sh
-```
-
-KUKSA commands must use VAL v2 `Actuate` or Velocitas VDB `SetDatapoints`. Writing a VAL v1 current value is not an actuator command. Default vehicle menu commands use `VDB_ADDRESS=127.0.0.1:55555`.
+The packaged vehicle menu runs `databroker-cli actuate` for high-beam commands.
+The CLI uses `VDB_ADDRESS` (default `127.0.0.1:55555`) and VAL v1 actuator
+target writes, which the provider forwards to mw::com. External clients may use
+VAL v2 `Actuate`/`BatchActuate` or VAL v1 actuator-target APIs. Writing a
+current value is not an actuator command.
 
 ## Network Configuration
 
@@ -273,21 +276,21 @@ cd ~/sdv-demo
 ```bash
 bazel test --config=sdv-demo //sdv-hack-demo/vehicle_app:signal_test_values_test
 bazel run --config=sdv-demo //sdv-hack-demo/vehicle_app:body_signal_test_app -- \
-  --routes "$PWD/sdv-hack-demo/signal_routes.json" --list
+  --routes "$PWD/sdv-hack-demo/config/signal_routes.json" --list
 ```
 
 ## Signals and Configuration
 
-The [body manifest](sdv-hack-demo/config/body_signals.json) is the authoritative list of the 44 body, door, and powertrain signals, datatypes, names, and event IDs. `Vehicle.Speed` is an additional read-only provider mapping. The requested `IsOpenx` spelling is normalized to `Vehicle.Cabin.Door.Row2.PassengerSide.IsOpen`.
+The [body manifest](../sdv-hack-demo/config/body_signals.json) is the authoritative list of the 44 body, door, and powertrain signals, datatypes, names, and event IDs. `Vehicle.Speed` is an additional read-only provider mapping. The requested `IsOpenx` spelling is normalized to `Vehicle.Cabin.Door.Row2.PassengerSide.IsOpen`.
 
-The [routes](sdv-hack-demo/signal_routes.json) record VSS `apiName`, mw::com `eventName`, datatype, and wire IDs. Extend the signal manifest and regenerate matching artifacts rather than changing only one deployed route file.
+The [routes](../sdv-hack-demo/config/signal_routes.json) record VSS `apiName`, mw::com `eventName`, datatype, and wire IDs. Extend the signal manifest and regenerate matching artifacts rather than changing only one deployed route file.
 
 **Build host, working directory: repository root, synchronize and check snapshots:**
 
 ```bash
-python3 sdv-hack-demo/configure_signals.py --write
-python3 sdv-hack-demo/configure_signals.py
-python3 sdv-hack-demo/configure_signals_test.py
+python3 sdv-hack-demo/tools/configure_signals.py --write
+python3 sdv-hack-demo/tools/configure_signals.py
+python3 sdv-hack-demo/tools/configure_signals_test.py
 ```
 
 Synchronization also updates the communication vehicle-dynamics example and generated KUKSA gateway bindings. Rebuild, package, and redeploy both archives after changes. See [configuration and packaging](ARCHITECTURE.md#configuration-and-packaging) for ownership, generated files, native layouts, and wire formats.
@@ -413,15 +416,15 @@ rm -f /tmp/vsomeip*.lck
 
 ### System Block Diagram
 
-![System block diagram](images/System_Block_Diagram.jpg)
+![System block diagram](../images/System_Block_Diagram.jpg)
 
 ### Internal Architecture
 
-![Internal architecture](images/Architecture.jpg)
+![Internal architecture](../images/Architecture.jpg)
 
 ### Dataflow
 
-![Signal dataflow](images/signalflow.png)
+![Signal dataflow](../images/signalflow.png)
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the canonical process/signal flow, horn IDs, serializers, speed acknowledgement semantics, dependency history, and isolated BCM profile. The default gateway profile runs entirely on the vehicle Pi; the remote app uses UDP directly.
 
@@ -429,11 +432,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the canonical process/signal flow, ho
 
 | Location | Purpose |
 | --- | --- |
-| [Build script](sdv-hack-demo/build-aarch64.sh) | Cross-compile ARM64 gateway and application targets |
-| [Packaging script](sdv-hack-demo/package-aarch64.sh) | Produce vehicle, remote, and isolated BCM archives |
-| [Vehicle launcher](sdv-hack-demo/deploy/start-vehicle.sh) | Start the selected vehicle profile |
-| [Remote launcher](sdv-hack-demo/deploy/start-remote.sh) | Start the remote UDP application |
-| [Network defaults](sdv-hack-demo/deploy/network.env) | Packaged vehicle/remote addresses and ports |
-| [Signal routes](sdv-hack-demo/signal_routes.json) | SOME/IP-to-UDP route mappings |
-| [Vehicle app](sdv-hack-demo/vehicle_app) | Vehicle menu and all-signal test application |
-| [Remote app](sdv-hack-demo/remote_app) | Remote menu, GPIO, UDP, and feedback |
+| [Build script](../sdv-hack-demo/scripts/build-aarch64.sh) | Cross-compile ARM64 gateway and application targets |
+| [Packaging script](../sdv-hack-demo/scripts/package-aarch64.sh) | Produce vehicle, remote, and isolated BCM archives |
+| [Vehicle launcher](../sdv-hack-demo/deploy/start-vehicle.sh) | Start the selected vehicle profile |
+| [Remote launcher](../sdv-hack-demo/deploy/start-remote.sh) | Start the remote UDP application |
+| [Network defaults](../sdv-hack-demo/deploy/network.env) | Packaged vehicle/remote addresses and ports |
+| [Signal routes](../sdv-hack-demo/config/signal_routes.json) | SOME/IP-to-UDP route mappings |
+| [Vehicle app](../sdv-hack-demo/vehicle_app) | Vehicle menu and all-signal test application |
+| [Remote app](../sdv-hack-demo/remote_app) | Remote menu, GPIO, UDP, and feedback |

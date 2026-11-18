@@ -28,7 +28,11 @@
 namespace score::gateway_ipc_binding {
 
 /// \brief Maximum find service elements
+#if defined(__linux__)
+inline constexpr std::size_t kMax_find_service_elements = 8U;
+#else
 inline constexpr std::size_t kMax_find_service_elements = 4U;
+#endif
 
 /// \brief Maximum bytes for serialized service id
 inline constexpr std::size_t kMax_service_id_size = 64U;

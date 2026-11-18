@@ -35,6 +35,7 @@ cc_library(
     name = "vehicle_gen_types",
     hdrs = [
         "body_signal_events.inc",
+        "high_beam_event.inc",
         "vehicle_gen.h",
     ],
     visibility = ["//score/mw/com:__subpackages__"],

@@ -1,7 +1,0 @@
-{
-  "appId": "FGSA",
-  "appDesc": "field_getter_setter_if_available",
-  "logLevel": "kDebug",
-  "logLevelThresholdConsole": "kDebug",
-  "logMode": "kRemote|kConsole"
-}

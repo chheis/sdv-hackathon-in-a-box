@@ -43,6 +43,6 @@
     {"apiName": "Vehicle.Acceleration.Vertical", "name": "vertical_acceleration", "datatype": "float", "type": "sensor", "unit": "m/s^2", "vehicleEvent": 33922},
     {"apiName": "Vehicle.Chassis.Brake.PedalPosition", "name": "brake_pedal_position", "datatype": "uint8", "type": "sensor", "unit": "percent", "vehicleEvent": 33924},
     {"apiName": "Vehicle.Powertrain.FuelSystem.IsEngineStopStartEnabled", "name": "engine_stop_start_enabled", "datatype": "boolean", "description": "Indicates whether eco start stop is currently enabled.", "type": "sensor", "id": "ac5159229d3102ff9c3bb677", "vehicleEvent": 33926},
-    {"apiName": "Vehicle.Powertrain.Transmission.PerformanceMode", "name": "transmission_performance_mode", "datatype": "string", "description": "Current gearbox performance mode.", "type": "actuator", "id": "e5be7ad076ac469412681cd1", "vehicleEvent": 33928}
+    {"apiName": "Vehicle.Powertrain.Transmission.PerformanceMode", "name": "transmission_performance_mode", "datatype": "string", "description": "Current gearbox performance mode.", "type": "bidirectional", "id": "e5be7ad076ac469412681cd1", "vehicleEvent": 33928}
   ]
 }

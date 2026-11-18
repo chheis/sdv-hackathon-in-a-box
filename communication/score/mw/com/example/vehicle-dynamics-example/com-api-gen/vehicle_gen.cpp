@@ -35,7 +35,7 @@ BEGIN_EXPORT_MW_COM_INTERFACE(
 
 #define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
 EXPORT_MW_COM_EVENT(::score::mw::com::rx_type, event_name)
-#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/high_beam_event.inc"
 #undef SCORE_BODY_SIGNAL_EVENT
 
 END_EXPORT_MW_COM_INTERFACE()
@@ -51,12 +51,45 @@ BEGIN_EXPORT_MW_COM_INTERFACE(
 
 #define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
 EXPORT_MW_COM_EVENT(::score::mw::com::tx_type, event_name)
-#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/high_beam_event.inc"
 #undef SCORE_BODY_SIGNAL_EVENT
 
 END_EXPORT_MW_COM_INTERFACE()
 
 EXPORT_MW_COM_TYPE(HighBeamCommand, ::score::mw::com::HighBeamCommand)
+
+BEGIN_EXPORT_MW_COM_INTERFACE(
+    ScoreAppCommandIngress,
+    ::score::mw::com::ScoreAppCommandIngressProxy,
+    ::score::mw::com::ScoreAppCommandIngressSkeleton)
+
+EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamCommand, high_beam_command)
+
+END_EXPORT_MW_COM_INTERFACE()
+
+BEGIN_EXPORT_MW_COM_INTERFACE(
+    BodyControlModuleRx,
+    ::score::mw::com::BodyControlModuleRxProxy,
+    ::score::mw::com::BodyControlModuleRxSkeleton)
+
+#define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+EXPORT_MW_COM_EVENT(::score::mw::com::rx_type, event_name)
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#undef SCORE_BODY_SIGNAL_EVENT
+
+END_EXPORT_MW_COM_INTERFACE()
+
+BEGIN_EXPORT_MW_COM_INTERFACE(
+    BodyControlModuleTx,
+    ::score::mw::com::BodyControlModuleTxProxy,
+    ::score::mw::com::BodyControlModuleTxSkeleton)
+
+#define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+EXPORT_MW_COM_EVENT(::score::mw::com::tx_type, event_name)
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#undef SCORE_BODY_SIGNAL_EVENT
+
+END_EXPORT_MW_COM_INTERFACE()
 
 BEGIN_EXPORT_MW_COM_INTERFACE(
     BodyControlModuleService,

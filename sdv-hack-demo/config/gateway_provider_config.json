@@ -7,14 +7,14 @@
             "signal_id": 1,
             "vss_path": "Vehicle.Body.Lights.Beam.High.IsOn",
             "datatype": "bool",
-            "service": "/body_control_module_rx",
+            "service": "/vehicle_high_beam_rx",
             "instance": "network_rx",
             "member": "high_beam_state",
             "direction": "bidirectional",
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "actuation_binding": {
-                "service": "/body_control_module_tx",
+                "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "high_beam_state"
             }
@@ -690,12 +690,17 @@
             "signal_id": 44,
             "vss_path": "Vehicle.Powertrain.Transmission.PerformanceMode",
             "datatype": "string",
-            "service": "/body_control_module_tx",
-            "instance": "local_tx",
+            "service": "/body_control_module_rx",
+            "instance": "network_rx",
             "member": "transmission_performance_mode_state",
-            "direction": "actuator",
+            "direction": "bidirectional",
             "cycle_time_ms": 100,
-            "required_quality": "valid"
+            "required_quality": "valid",
+            "actuation_binding": {
+                "service": "/body_control_module_tx",
+                "instance": "local_tx",
+                "member": "transmission_performance_mode_state"
+            }
         },
         {
             "signal_id": 45,

@@ -31,20 +31,26 @@ struct RecordingTraits
     };
 };
 
-TEST(BodySignalInterfaceTest, BothDirectionsDeclareAllBodySignals)
+TEST(BodySignalInterfaceTest, BodyAndHighBeamUseSeparateInterfaces)
 {
-    const HighBeamTx<RecordingTraits> tx;
-    const VehicleHighBeamRx<RecordingTraits> rx;
-    EXPECT_EQ(tx.event_names.size(), 37U);
-    EXPECT_EQ(rx.event_names, tx.event_names);
-    EXPECT_EQ(tx.event_names.front(), "high_beam_state");
-    EXPECT_EQ(tx.event_names.back(), "row2_passenger_door_open_state");
+    const BodyControlModuleTx<RecordingTraits> body_tx;
+    const BodyControlModuleRx<RecordingTraits> body_rx;
+    const HighBeamTx<RecordingTraits> high_beam_tx;
+    const VehicleHighBeamRx<RecordingTraits> high_beam_rx;
+    EXPECT_EQ(body_tx.event_names.size(), 43U);
+    EXPECT_EQ(body_rx.event_names, body_tx.event_names);
+    EXPECT_EQ(body_tx.event_names.front(), "horn_state");
+    EXPECT_EQ(body_tx.event_names.back(), "transmission_performance_mode_state");
+    EXPECT_EQ(high_beam_tx.event_names, (std::vector<std::string>{"high_beam_state"}));
+    EXPECT_EQ(high_beam_rx.event_names, high_beam_tx.event_names);
 
-    static_assert(std::is_same_v<decltype(tx.horn_state)::SampleType, HighBeamCommand>);
-    static_assert(std::is_same_v<decltype(rx.horn_state)::SampleType, HighBeamState>);
-    static_assert(std::is_same_v<decltype(rx.rear_trunk_position_state)::SampleType, HighBeamCommand>);
-    static_assert(std::is_same_v<decltype(tx.front_wiping_mode_state)::SampleType, BodySignalText>);
-    static_assert(std::is_same_v<decltype(rx.front_wiping_mode_state)::SampleType, BodySignalText>);
+    static_assert(std::is_same_v<decltype(body_tx.horn_state)::SampleType, HighBeamCommand>);
+    static_assert(std::is_same_v<decltype(body_rx.horn_state)::SampleType, HighBeamState>);
+    static_assert(std::is_same_v<decltype(body_rx.rear_trunk_position_state)::SampleType, HighBeamCommand>);
+    static_assert(std::is_same_v<decltype(body_tx.front_wiping_mode_state)::SampleType, BodySignalText>);
+    static_assert(std::is_same_v<decltype(body_rx.front_wiping_mode_state)::SampleType, BodySignalText>);
+    static_assert(std::is_same_v<decltype(high_beam_tx.high_beam_state)::SampleType, HighBeamCommand>);
+    static_assert(std::is_same_v<decltype(high_beam_rx.high_beam_state)::SampleType, HighBeamState>);
 }
 
 TEST(BodySignalInterfaceTest, SamplesMatchGatewaySharedMemoryLayouts)
@@ -59,6 +65,13 @@ TEST(BodySignalInterfaceTest, SamplesMatchGatewaySharedMemoryLayouts)
     EXPECT_EQ(offsetof(BodySignalText, data), 16U);
     const BodySignalText text{};
     EXPECT_EQ(sizeof(text.data), 32U);
+}
+
+TEST(BodySignalInterfaceTest, CommandIngressDeclaresHighBeamCommand)
+{
+    const ScoreAppCommandIngress<RecordingTraits> ingress;
+    EXPECT_EQ(ingress.event_names, (std::vector<std::string>{"high_beam_command"}));
+    static_assert(std::is_same_v<decltype(ingress.high_beam_command)::SampleType, HighBeamCommand>);
 }
 
 }

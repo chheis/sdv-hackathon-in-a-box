@@ -69,7 +69,7 @@ bool ReadInputLine(std::istream& stream, int fd, std::string& line) {
 }
 
 constexpr auto kPublishPeriod = std::chrono::seconds{2};
-constexpr auto kBodySignalTestDelay = std::chrono::seconds{5};
+constexpr auto kBodySignalTestDelay = std::chrono::milliseconds{250};
 constexpr auto kGpioSamplePeriod = std::chrono::milliseconds{5};
 constexpr auto kGpioDebouncePeriod = std::chrono::milliseconds{30};
 constexpr char kSensorStateKey[] = "high_beam_state";
@@ -102,6 +102,56 @@ bool PublishBooleanUpdate(const int socket_fd, const Route& route,
     return true;
 }
 
+bool PublishSignalUpdate(const int socket_fd, const Route& route, const sockaddr_in& destination,
+                         const std::vector<std::uint8_t>& value) {
+    high_beam_udp::Frame frame{route.service, route.remote_instance, route.remote_event,
+                               static_cast<std::uint8_t>(value.size()), {}};
+    if (value.size() > frame.payload.size()) {
+        score::mw::log::LogError() << "Payload too large for " << route.api_name;
+        return false;
+    }
+    std::copy(value.begin(), value.end(), frame.payload.begin());
+    const auto encoded = high_beam_udp::Encode(frame);
+    const auto sent = sendto(socket_fd, encoded.data(), encoded.size(), 0,
+                             reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
+    if (sent != static_cast<ssize_t>(encoded.size())) {
+        score::mw::log::LogError() << "Failed to publish value for " << route.api_name
+                                  << ": " << std::string{std::strerror(errno)};
+        return false;
+    }
+    return true;
+}
+
+bool PublishSignalTestValues(const int socket_fd, const Route& route, const sockaddr_in& destination,
+                             std::size_t& published) {
+    const auto values = high_beam_udp::TestPayloads(route.datatype, route.api_name);
+    if (values.empty()) {
+        score::mw::log::LogError() << "Unsupported test datatype for " << route.api_name;
+        return false;
+    }
+    for (const auto& value : values) {
+        if (!PublishSignalUpdate(socket_fd, route, destination, value)) {
+            return false;
+        }
+        if (route.datatype == "boolean") {
+            score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                      << "=" << (value[0] == 0U ? "false" : "true");
+        } else if (route.datatype == "uint8") {
+            score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                      << "=" << static_cast<unsigned int>(value[0]);
+        } else if (route.datatype == "string") {
+            score::mw::log::LogWarn() << "Remote published test " << route.api_name << "="
+                                      << std::string{value.begin(), value.end()};
+        } else {
+            score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                      << " payload_bytes=" << value.size();
+        }
+        ++published;
+        std::this_thread::sleep_for(kBodySignalTestDelay);
+    }
+    return true;
+}
+
 bool PublishAllBodySignals(const int socket_fd, const std::vector<Route>& routes,
                            const sockaddr_in& destination, std::mutex& high_beam_publish_mutex) {
     std::size_t published = 0;
@@ -109,43 +159,13 @@ bool PublishAllBodySignals(const int socket_fd, const std::vector<Route>& routes
         if (route.service != 17152U) {
             continue;
         }
-        const auto values = high_beam_udp::TestPayloads(route.datatype, route.api_name);
-        if (values.empty()) {
-            score::mw::log::LogError() << "Unsupported test datatype for " << route.api_name;
-            return false;
-        }
         std::unique_lock<std::mutex> high_beam_test_lock{high_beam_publish_mutex, std::defer_lock};
         if (route.name == "high_beam") {
             // Hold off periodic high-beam frames until the complete test sequence is sent.
             high_beam_test_lock.lock();
         }
-        for (const auto& value : values) {
-            high_beam_udp::Frame frame{route.service, route.remote_instance, route.remote_event,
-                                       static_cast<std::uint8_t>(value.size()), {}};
-            std::copy(value.begin(), value.end(), frame.payload.begin());
-            const auto encoded = high_beam_udp::Encode(frame);
-            const auto sent = sendto(socket_fd, encoded.data(), encoded.size(), 0,
-                                     reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
-            if (sent != static_cast<ssize_t>(encoded.size())) {
-                score::mw::log::LogError() << "Failed to publish test value for " << route.api_name
-                                          << ": " << std::string{std::strerror(errno)};
-                return false;
-            }
-            if (route.datatype == "boolean") {
-                score::mw::log::LogWarn() << "Remote published test " << route.api_name
-                                          << "=" << (value[0] == 0U ? "false" : "true");
-            } else if (route.datatype == "uint8") {
-                score::mw::log::LogWarn() << "Remote published test " << route.api_name
-                                          << "=" << static_cast<unsigned int>(value[0]);
-            } else if (route.datatype == "string") {
-                score::mw::log::LogWarn() << "Remote published test " << route.api_name << "="
-                                          << std::string{value.begin(), value.end()};
-            } else {
-                score::mw::log::LogWarn() << "Remote published test " << route.api_name
-                                          << " payload_bytes=" << value.size();
-            }
-            ++published;
-            std::this_thread::sleep_for(kBodySignalTestDelay);
+        if (!PublishSignalTestValues(socket_fd, route, destination, published)) {
+            return false;
         }
     }
     score::mw::log::LogWarn() << "Remote published " << published << " samples across 44 body signals";
@@ -204,6 +224,7 @@ void PrintRemoteMenu() {
         "2  Vehicle.speed (number)\n"
         "3  Vehicle.Body.Lights.Parking.IsOn (true/false)\n"
         "4  Publish test values for all 44 body signals\n"
+        "5  Vehicle.Powertrain.Transmission.PerformanceMode\n"
         "q  Quit remote app\n"
         "Select: ");
 }
@@ -664,7 +685,31 @@ int main() {
                     PrintRemoteMenu();
                     continue;
                 }
-                score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, 3, 4, or q.";
+                if (input == "5") {
+                    const auto mode = std::find_if(routes->begin(), routes->end(), [](const Route& route) {
+                        return route.api_name == "Vehicle.Powertrain.Transmission.PerformanceMode";
+                    });
+                    if (mode == routes->end() || mode->datatype != "string") {
+                        Say("PerformanceMode requires a string route for "
+                            "Vehicle.Powertrain.Transmission.PerformanceMode.\n");
+                        PrintRemoteMenu();
+                        continue;
+                    }
+                    Say("PerformanceMode value (NORMAL/SPORT/ECONOMY/SNOW/RAIN): ");
+                    if (!ReadInputLine(input_stream, input_fd, input)) {
+                        break;
+                    }
+                    if (input != "NORMAL" && input != "SPORT" && input != "ECONOMY" &&
+                        input != "SNOW" && input != "RAIN") {
+                        Say("Invalid PerformanceMode. Enter NORMAL, SPORT, ECONOMY, SNOW, or RAIN.\n");
+                    } else if (PublishSignalUpdate(udp_socket, *mode, bridge_address,
+                                                   std::vector<std::uint8_t>(input.begin(), input.end()))) {
+                        Say("Published PerformanceMode: " + input + "\n");
+                    }
+                    PrintRemoteMenu();
+                    continue;
+                }
+                score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, 3, 4, 5, or q.";
             }
             if (terminal_fd >= 0) {
                 close(terminal_fd);

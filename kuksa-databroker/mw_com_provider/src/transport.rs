@@ -27,6 +27,12 @@ pub enum MwComValue {
     Bytes(Vec<u8>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MwComMessageKind {
+    Datapoint,
+    ActuatorTarget,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MwComMessage {
     // These three fields are the stable lookup key between generated S-Core
@@ -35,6 +41,7 @@ pub struct MwComMessage {
     pub instance: String,
     pub member: String,
     pub value: MwComValue,
+    pub kind: MwComMessageKind,
     pub source_timestamp: Option<SystemTime>,
     pub quality: SignalQuality,
 }

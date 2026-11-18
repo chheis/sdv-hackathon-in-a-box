@@ -60,4 +60,4 @@ pub use provider::{MwComProvider, MwComProviderWorker};
 pub use quality::SignalQuality;
 #[cfg(feature = "score-lola")]
 pub use score_lola_adapter::LolaScoreRuntimeAdapter;
-pub use transport::{MwComMessage, MwComTransport, MwComValue};
+pub use transport::{MwComMessage, MwComMessageKind, MwComTransport, MwComValue};

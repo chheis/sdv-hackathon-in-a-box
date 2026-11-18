@@ -1,7 +1,0 @@
-{
-  "appId": "SV",
-  "appDesc": "signature_variations",
-  "logLevel": "kDebug",
-  "logLevelThresholdConsole": "kInfo",
-  "logMode": "kRemote|kConsole"
-}

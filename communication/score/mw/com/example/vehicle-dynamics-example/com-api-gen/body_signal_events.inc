@@ -1,4 +1,3 @@
-SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, high_beam_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, horn_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, high_beam_switch_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, parking_lights_state)

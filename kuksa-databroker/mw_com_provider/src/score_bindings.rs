@@ -605,6 +605,7 @@ mod tests {
                 instance: "network_rx".into(),
                 member: "speed".into(),
                 value: MwComValue::F64(12.5),
+                kind: crate::transport::MwComMessageKind::Datapoint,
                 source_timestamp: None,
                 quality: SignalQuality::Valid,
             }),
@@ -620,10 +621,11 @@ mod tests {
         assert_eq!(transport.recv().await.unwrap().value, MwComValue::F64(12.5));
         transport
             .send_actuation(MwComMessage {
-                service: "/body_control_module_tx".into(),
+                service: "/vehicle_high_beam_tx".into(),
                 instance: "local_tx".into(),
                 member: "high_beam_state".into(),
                 value: MwComValue::Bool(true),
+                kind: crate::transport::MwComMessageKind::ActuatorTarget,
                 source_timestamp: None,
                 quality: SignalQuality::Valid,
             })
