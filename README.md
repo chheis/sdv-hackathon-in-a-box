@@ -310,7 +310,7 @@ may still be running.
 
 ### KUKSA API compatibility
 
-This concept targets `kuksa.val.v2`, the current KUKSA Databroker API. It does not use the deprecated `kuksa.val.v1` API or the legacy `sdv.databroker.v1` API.
+The Velocitas SDK integration targets `kuksa.val.v2`. The runtime syncer and Databroker CLI still use `kuksa.val.v1`, so the demo requires both VAL APIs; it does not use the legacy `sdv.databroker.v1` API.
 The upstream SDV Runtime has not yet been updated to support VAL v2. For this
 concept, the build applies a local runtime integration patch and uses the
 VAL v2-capable Velocitas SDK fork pinned in
