@@ -1,60 +1,106 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Databroker composition demo patch
+# Reproducing the demo Databroker integration
 
-The base composition follows the supplied incubation workspace. Its `main.rs`
-retains the generic `Int16` and `FloatArray` datatype/bound handling.
+Use the exact revisions in [databroker-baseline.env](databroker-baseline.env):
 
-[`databroker-mw-com-demo.patch`](databroker-mw-com-demo.patch) contains:
+| Source | Pinned commit |
+| --- | --- |
+| [KUKSA Databroker](https://github.com/eclipse-kuksa/kuksa-databroker) | `4cb080eecee2ea5033d34b5f1f0f6ca2c8b76424` (`0.7.2-dev.0`) |
+| [Incubation provider/composition](https://github.com/eclipse-kuksa/kuksa-incubation/tree/34d0f759645392cc14dc1f5426e9ad6089f27491/mw-com-provider) | `34d0f759645392cc14dc1f5426e9ad6089f27491` |
+| [KUKSA proto submodule](https://github.com/eclipse-kuksa/kuksa-proto) | `28bf76ae57085dad425eedd95bc7bd442e1314a7` |
 
-- BCM configuration and native link-parameter defaults.
-- Gateway-versus-LoLa adapter selection.
-- Optional receive-only mode: `KUKSA_HIGH_BEAM_ACTUATION=0` makes mappings
-  with a separate `/body_control_module_tx` binding receive-only. The combined
-  vehicle launcher leaves actuation enabled so the provider can forward
-  `databroker-cli` and external KUKSA actuator requests. The policy is extracted
-  into a private helper so it can be tested without changing process-wide
-  environment variables.
-- Explicit `OUT_DIR` passing and replacement of read-only staged archives.
+The demo's `databroker/` core matches the pinned Databroker commit byte for
+byte. This is not current upstream `main` (`0.7.3-dev.0` at
+`fce05ac2cabca7db68ef454bcd81ac5b948fb2c4` when compared). In particular,
+the pinned `SignalProvider` read callback takes `&mut self`; current upstream
+uses `&self`. Do not substitute newer branches without rebasing and testing.
 
-The [demo ARM64 build script](../scripts/build-aarch64.sh) calls
-[`apply-patches.sh`](../scripts/apply-patches.sh) before signal generation and
-compilation. Repeated builds skip an already-applied
-patch; a missing or conflicting patch stops the build. Application modifies the
-checked-out composition sources and leaves them patched.
+The incubation source is also pinned: it is not the newer draft ZIP shared
+during review. Both patches below are generated against the public incubation
+revision, not against that ZIP.
 
-For builds that bypass that entry point, run the patch script from the repository root:
+## Two patches
 
-```sh
+1. [mw-com-provider-demo.patch](mw-com-provider-demo.patch) reproduces the demo's
+   complete `mw_com_provider/` source tree from incubation. It includes the BCM
+   model/generated files, separate body/high-beam services, private vehicle-app
+   command ingress, datapoint-versus-target classification, datatype handling,
+   native Cargo shims, tests, and code-generation templates. It also removes
+   obsolete vehicle-dynamics model/configuration files.
+2. [databroker-mw-com-demo.patch](databroker-mw-com-demo.patch) adds the
+   composition's `Int16`/`FloatArray` support, gateway adapter selection, BCM
+   defaults, optional direct-mode command policy, and native archive handling.
+   It also includes the required **workspace integration**: Cargo members and
+   exclusions, the matching lockfile, shared proto build paths, and removal
+   of the unsupported legacy CLI protocol option.
+
+The old composition-only patch did not apply completely to public incubation:
+it assumed the draft already supplied `Int16` and `FloatArray`. It has been
+replaced with the complete patch above.
+
+Neither patch changes files under `databroker/`. A real Git clone preserves
+the upstream `databroker-proto/proto` symlink; the demo's flattened copy had
+lost that symlink. The integration patch uses `../proto` explicitly, so both
+layouts compile from the same pinned protocol sources.
+
+## Fresh checkout
+
+Run from the SDV repository root. The script creates `kuksa-databroker/` when
+absent, checks out the pinned commit, initializes the pinned proto submodule,
+and downloads the missing provider/composition folders.
+The sibling `communication/` and `baselibs/` sources from this SDV workspace
+remain required for native builds.
+The incubation archive download extracts only the two required folders into
+Databroker; it does not create a separate incubation checkout.
+
+```bash
 bash sdv-hack-demo/scripts/apply-patches.sh
 ```
 
-The patch covers only the composition. The provider uses standard broker
-updates for feedback and forwards only actuator targets or actuation callbacks.
-The ARM64 helper uses the demo-owned
-[`cargo-mw-com.sh`](../scripts/cargo-mw-com.sh), a plain Cargo launcher with no
-broker patching or isolated modified sources.
+The patch script checks **both** patches before changing sources, skips patches
+already applied, and fails on conflicting or partially applied sources.
+An existing Git checkout must match the pinned Databroker and proto revisions;
+the script does not reset or overwrite an unrelated checkout.
+The normal [ARM64 build](../scripts/build-aarch64.sh) invokes it before
+signal generation and compilation. Do not copy the already-patched provider
+over a partially patched baseline.
 
-## External tests
+`KUKSA_HIGH_BEAM_ACTUATION=0` makes mappings with a separate
+`/body_control_module_tx` binding receive-only. The combined vehicle launcher
+leaves actuation enabled. The [Cargo wrapper](../scripts/cargo-mw-com.sh)
+only forwards Cargo arguments; it does not modify broker sources.
 
-Run against the **unpatched base** from the repository root:
+This reconstructs the demo's provider, patched composition, Cargo integration,
+and broker core. It does not duplicate unrelated documentation, Git metadata,
+build output, or deployment state from the old bundled checkout.
+Matching source is necessary but does not replace rebuilding and deploying
+matching gateway, communication, provider, configuration, and runtime artifacts.
+
+## Verification
+
+With local clones containing the pinned commits:
+
+```sh
+bash sdv-hack-demo/tests/databroker-mw-com/upstream_reconstruction_test.sh \
+  /path/to/kuksa-databroker-git \
+  /path/to/kuksa-incubation-git \
+  /path/to/kuksa-proto-git
+```
+
+This reconstructs sources in a temporary directory, applies both patches twice,
+compares source contents with this demo, and checks that broker core is unchanged.
+
+Other focused checks:
 
 ```sh
 bash sdv-hack-demo/tests/databroker-mw-com/run.sh build
-bash sdv-hack-demo/tests/databroker-mw-com/run.sh main
 bash sdv-hack-demo/tests/databroker-mw-com/patch_application_test.sh
 bash sdv-hack-demo/tests/databroker-mw-com/cargo_wrapper_test.sh
+cd kuksa-databroker
+cargo test --offline --locked -p mw_com_provider --lib --tests
 ```
 
-The runner applies the patch to temporary sources, checks exact reversal, and
-leaves the checked-in composition unchanged. With no argument it runs both.
-The archive regression uses `rustc` and GNU `ar` on Unix, without broker/native
-dependencies. Temporary files are cleaned on exit.
-The build-script test checks initial application, repeated application, and
-conflict rejection in an isolated fixture with compilation commands stubbed.
-
-The main test includes the real patched composition and uses its Cargo
-dependencies. It checks direct-mode binding isolation and normal-mode
-preservation. It requires the same native libraries/toolchain as the composition.
-A passing archive test does not imply a successful full composition build;
-native test execution still requires libraries matching the host architecture.
+The composition main tests (`run.sh main`) require native libraries matching the
+host architecture. ARM64 native libraries cannot be linked into an x86-64 test.
+Host/mock tests do not establish Pi-to-Pi end-to-end operation.
