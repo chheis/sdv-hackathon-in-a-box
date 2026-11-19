@@ -34,7 +34,7 @@ Feedback:
 remote application -> network -> UDP bridge -> someipd -> gatewayd -> mw::com
   -> score_app (feedback subscription) and mw_com_provider -> KUKSA Databroker current value
 ```
-
+NOTE : KUKSA Databroker with MW-com-provider is in incubation.
 
 ## Contents
 
@@ -148,7 +148,37 @@ export AARCH64_TOOLCHAIN_ROOT="$HOME/aarch64_toolchain"
 On x86-64, the runtime build creates or reuses the `sdv-val2-builder`
 Buildx container for ARM64 emulation without changing the default builder.
 Set `BUILDX_BUILDER` explicitly to use a different builder.
+
+
+**Note:** Completing the build requires the KUKSA Databroker mw::com provider
+from [Eclipse KUKSA Incubation](https://github.com/eclipse-kuksa/kuksa-incubation/tree/main/mw-com-provider).
+Use Databroker commit `4cb080eecee2ea5033d34b5f1f0f6ca2c8b76424`
+(`0.7.2-dev.0`) and incubation commit
+`34d0f759645392cc14dc1f5426e9ad6089f27491`, not their moving `main` branches.
+Copy both incubation folders and apply the two demo patches as described in
+the [pinned-source setup guide](sdv-hack-demo/patches/README.md#fresh-checkout).
+
 ## Build and Package
+
+### 1. Get the pinned KUKSA sources and apply the demo patches
+
+Run on the host machine. The script clones Databroker at the pinned commit when
+its directory is absent, initializes the proto submodule, downloads only the
+required incubation folders into it, and applies both patches.
+The incubation archive is downloaded, but only `mw_com_provider/` and
+`databroker-mw-com/` are extracted; no incubation repository is cloned.
+
+```bash
+cd ~/sdv-hackathon-in-a-box
+bash sdv-hack-demo/scripts/apply-patches.sh
+```
+
+This applies both the provider patch and the composition/workspace integration
+patch. It skips already-applied patches and stops on conflicts. Do not copy
+fresh incubation folders over patched sources. An existing Databroker checkout
+at a different commit is rejected rather than overwritten.
+
+### 2. Build and package the ARM64 demo
 
 ```bash
 cd ~/sdv-hackathon-in-a-box
@@ -156,7 +186,9 @@ bash sdv-hack-demo/scripts/build-aarch64.sh
 bash sdv-hack-demo/scripts/package-aarch64.sh
 ```
 
-The checked-in Databroker core remains unchanged. Provider/composition builds
+The Databroker core matches the pinned upstream commit and remains unchanged.
+The build applies the [provider and composition/integration patches](sdv-hack-demo/patches/README.md#two-patches).
+Provider/composition builds
 use standard broker APIs: actuator targets are commands, while current values
 are state. No feedback-origin patch or temporary modified broker is required.
 The demo-owned Cargo wrapper only forwards Cargo arguments. Packaging paths are
@@ -276,6 +308,16 @@ may still be running.
 
 ## Setup and Run the SDV Runtime
 
+### KUKSA API compatibility
+
+This concept targets `kuksa.val.v2`, the current KUKSA Databroker API. It does not use the deprecated `kuksa.val.v1` API or the legacy `sdv.databroker.v1` API.
+The upstream SDV Runtime has not yet been updated to support VAL v2. For this
+concept, the build applies a local runtime integration patch and uses the
+VAL v2-capable Velocitas SDK fork pinned in
+[velocitas-val2.patch](sdv-hack-demo/sdv-runtime/velocitas-val2.patch).
+The resulting image is configured for VAL v2
+
+
 ### Install Docker on HW-1(RPi-1)
 
 For Raspberry Pi OS / Debian:
@@ -291,6 +333,8 @@ sudo docker info
 Docker group membership grants root-equivalent access.
 
 ### Load and start the container
+
+
 
 Then run on **HW-1(RPi-1)**:
 

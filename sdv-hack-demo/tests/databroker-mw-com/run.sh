@@ -18,14 +18,19 @@ work="$temp/kuksa-databroker"
 mkdir -p "$work/databroker-mw-com/src"
 cp "$source_root/databroker-mw-com/build.rs" "$work/databroker-mw-com/"
 cp "$source_root/databroker-mw-com/src/main.rs" "$work/databroker-mw-com/src/"
-git -C "$work" apply --check "$patch_file"
-git -C "$work" apply "$patch_file"
-git -C "$work" apply --reverse --check "$patch_file"
+# This harness tests the composition only, not the workspace/bootstrap hunks.
+if git -C "$work" apply --include='databroker-mw-com/*' --reverse --check "$patch_file" 2>/dev/null; then
+    git -C "$work" apply --include='databroker-mw-com/*' --reverse "$patch_file"
+fi
+cp -R "$work/databroker-mw-com" "$work/base"
+git -C "$work" apply --include='databroker-mw-com/*' --check "$patch_file"
+git -C "$work" apply --include='databroker-mw-com/*' "$patch_file"
+git -C "$work" apply --include='databroker-mw-com/*' --reverse --check "$patch_file"
 mkdir "$work/roundtrip"
 cp -R "$work/databroker-mw-com" "$work/roundtrip/"
-git -C "$work/roundtrip" apply --reverse "$patch_file"
-cmp "$source_root/databroker-mw-com/build.rs" "$work/roundtrip/databroker-mw-com/build.rs"
-cmp "$source_root/databroker-mw-com/src/main.rs" "$work/roundtrip/databroker-mw-com/src/main.rs"
+git -C "$work/roundtrip" apply --include='databroker-mw-com/*' --reverse "$patch_file"
+cmp "$work/base/build.rs" "$work/roundtrip/databroker-mw-com/build.rs"
+cmp "$work/base/src/main.rs" "$work/roundtrip/databroker-mw-com/src/main.rs"
 echo "Patch application and reversal: PASS"
 
 if [[ "$mode" != main ]]; then
