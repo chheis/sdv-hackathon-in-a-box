@@ -311,10 +311,10 @@ Create a container from the docker image for a runtime.
 ```bash
 sudo docker run -d \
   --name sdv-runtime \
-  --pull never \
   --network=host \
   --ipc=host \
-  -e RUNTIME_NAME=sdv-hackathon \
+  -e RUNTIME_NAME=<RUNTIME-NAME> \
+  -e SDV_DATABROKER_API=kuksa-val-v2 \
   sdv-runtime:mw-com
 ```
 `NOTE:` RUNTIME_NAME can be changed to any name as you want for your applciation on playground 
