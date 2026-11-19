@@ -1,0 +1,136 @@
+--- a/databroker-mw-com/src/main.rs
++++ b/databroker-mw-com/src/main.rs
+@@ -15,7 +15,10 @@
+ use databroker::broker::{ChangeType, DataBroker, DataType, DataValue, EntryType};
+ use databroker::grpc;
+ use databroker::permissions::ALLOW_ALL;
+-use mw_com_provider::score_bindings::{validate_score_bindings, ScoreBindingTransport};
++use mw_com_provider::gateway_adapter::GatewayScoreRuntimeAdapter;
++use mw_com_provider::score_bindings::{
++    validate_score_bindings, ScoreBindingTransport, ScoreRuntimeAdapter,
++};
+ use mw_com_provider::{
+     Direction, LolaScoreRuntimeAdapter, MwComProviderWorker, ProviderConfig, VssDataType,
+ };
+@@ -31,6 +34,10 @@
+ 
+     let args = DemoArgs::parse()?;
+     let mut config = ProviderConfig::load_json(&args.provider_config)?;
++    configure_command_mode(
++        &mut config,
++        std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() == Ok("0"),
++    );
+     // The generated provider config is the source of truth. Optional filtering
+     // is applied before Databroker runtime IDs are assigned below.
+     if let Some(included_paths) = args.included_paths() {
+@@ -102,6 +109,21 @@
+     Ok(())
+ }
+ 
++fn configure_command_mode(config: &mut ProviderConfig, direct_mode: bool) {
++    if direct_mode {
++        for mapping in &mut config.mappings {
++            if mapping
++                .actuation_binding
++                .as_ref()
++                .is_some_and(|binding| binding.service == "/body_control_module_tx")
++            {
++                mapping.direction = Direction::Datapoint;
++                mapping.actuation_binding = None;
++            }
++        }
++    }
++}
++
+ fn send_shutdown(tx: &mut Option<oneshot::Sender<()>>) {
+     if let Some(tx) = tx.take() {
+         let _ = tx.send(());
+@@ -191,8 +213,7 @@
+         let mut address = "127.0.0.1:55555".parse()?;
+         let mut provider_config =
+             "mw_com_provider/generated/mw_com_provider_config.json".to_string();
+-        let mut score_config =
+-            "mw_com_provider/generated/vehicle_dynamics_lola_config.json".to_string();
++        let mut score_config = "mw_com_provider/generated/bcm_config_lola_config.json".to_string();
+         let mut include_vss_paths = Vec::new();
+ 
+         let mut args = std::env::args().skip(1);
+@@ -243,7 +264,7 @@
+ 
+ fn print_usage() {
+     eprintln!(
+-        "Usage: databroker-mw-com [OPTIONS]\n\nOptions:\n  --address <ADDR>                  Databroker gRPC bind address [default: 127.0.0.1:55555]\n  --provider-config <FILE>          Provider mapping config [default: mw_com_provider/generated/mw_com_provider_config.json]\n  --score-config <FILE>             SCORE LoLa config [default: mw_com_provider/generated/vehicle_dynamics_lola_config.json]\n  --include-vss-path <PATH>         Include only this VSS mapping; repeatable [default: all configured mappings]\n  -h, --help                        Print help"
++        "Usage: databroker-mw-com [OPTIONS]\n\nOptions:\n  --address <ADDR>                  Databroker gRPC bind address [default: 127.0.0.1:55555]\n  --provider-config <FILE>          Provider mapping config [default: mw_com_provider/generated/mw_com_provider_config.json]\n  --score-config <FILE>             SCORE LoLa config [default: mw_com_provider/generated/bcm_config_lola_config.json]\n  --include-vss-path <PATH>         Include only this VSS mapping; repeatable [default: all configured mappings]\n  -h, --help                        Print help"
+     );
+ }
+ 
+@@ -309,7 +330,13 @@
+         .build()?;
+ 
+     runtime.block_on(async move {
+-        let adapter = LolaScoreRuntimeAdapter::new(score_config);
++        let adapter: Box<dyn ScoreRuntimeAdapter> = if GatewayScoreRuntimeAdapter::supports(&config)
++        {
++            info!("Using gateway-compatible Tx/Rx adapter");
++            Box::new(GatewayScoreRuntimeAdapter::new(score_config))
++        } else {
++            Box::new(LolaScoreRuntimeAdapter::new(score_config))
++        };
+         let transport = ScoreBindingTransport::new(adapter);
+         let provider = MwComProviderWorker::new(broker, ALLOW_ALL.clone(), config, transport)?;
+         provider.register_with_broker().await?;
+--- a/databroker-mw-com/build.rs
++++ b/databroker-mw-com/build.rs
+@@ -18,7 +18,7 @@
+ use std::process::{Command, Stdio};
+ 
+ const SCORE_LINK_PARAMS_SUFFIX: &str =
+-    "score/mw/com/example/vehicle-dynamics-example/vehicle-dynamics-example-0.params";
++    "score/mw/com/example/vehicle-dynamics-example/body-control-module-example-0.params";
+ 
+ fn main() {
+     println!("cargo:rerun-if-env-changed=SCORE_COM_BAZEL_BIN");
+@@ -37,7 +37,8 @@
+     // Merge them into a Cargo-visible archive so the final binary keeps the
+     // generated registration symbols that ordinary dead-code elimination drops.
+     let alwayslink_archives = collect_alwayslink_archives(&bazel_bin, &params_path);
+-    if let Some(archive_path) = create_alwayslink_archive(&alwayslink_archives) {
++    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set"));
++    if let Some(archive_path) = create_alwayslink_archive(&out_dir, &alwayslink_archives) {
+         if let Some(archive_dir) = archive_path.parent() {
+             println!("cargo:rustc-link-search=native={}", archive_dir.display());
+         }
+@@ -55,8 +56,8 @@
+     let params = fs::read_to_string(&params_path).unwrap_or_else(|error| {
+         panic!(
+             "failed to read S-Core link params at {}: {error}. \
+-             Rebuild the S-Core vehicle-dynamics-example target and set \
+-             SCORE_COM_LINK_PARAMS to its vehicle-dynamics-example-0.params file. \
++             Rebuild the S-Core body-control-module-example target and set \
++             SCORE_COM_LINK_PARAMS to its body-control-module-example-0.params file. \
+              If SCORE_COM_BAZEL_BIN points to a stale bazel-bin symlink, use `bazel info bazel-bin` from the S-Core communication checkout and export that path instead.",
+             params_path.display()
+         )
+@@ -192,18 +193,20 @@
+         .map(Path::to_path_buf)
+ }
+ 
+-fn create_alwayslink_archive(archives: &[PathBuf]) -> Option<PathBuf> {
++fn create_alwayslink_archive(out_dir: &Path, archives: &[PathBuf]) -> Option<PathBuf> {
+     if archives.is_empty() {
+         return None;
+     }
+ 
+-    let out_dir = env::var_os("OUT_DIR").map(PathBuf::from)?;
+     let archive_path = out_dir.join("libscore_com_alwayslink.a");
+     let _ = fs::remove_file(&archive_path);
+     let mut script = format!("CREATE {}\n", archive_path.display());
+     for (index, archive) in archives.iter().enumerate() {
+         println!("cargo:rerun-if-changed={}", archive.display());
+         let local_archive = out_dir.join(format!("score_com_alwayslink_part_{index}.a"));
++        if local_archive.exists() {
++            fs::remove_file(&local_archive).ok()?;
++        }
+         fs::copy(archive, &local_archive).ok()?;
+         script.push_str(&format!("ADDLIB {}\n", local_archive.display()));
+     }

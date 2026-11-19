@@ -13,14 +13,13 @@ SPDX-License-Identifier: Apache-2.0
 
 # COM API Example - Vehicle Monitor Application
 
-## Body and Door C++ Interfaces
+## Body and High-Beam C++ Interfaces
 
 The C++ definitions in [com-api-gen/vehicle_gen.h](com-api-gen/vehicle_gen.h)
-also expose all 37 configured body and door signals through `HighBeamTx` and
-`VehicleHighBeamRx`. The existing names are retained for compatibility.
-For example, `horn_state`, `rear_trunk_position_state`, and
-`front_wiping_mode_state` are available as typed events on both interfaces.
-The vehicle-dynamics Rust application's speed behavior is unchanged.
+expose 43 body and door signals through `BodyControlModuleTx` and
+`BodyControlModuleRx`. High-beam is isolated on `HighBeamTx` and
+`VehicleHighBeamRx`, preserving its `/vehicle_high_beam` service paths. The
+vehicle-dynamics Rust application's speed behavior is unchanged.
 
 Use the header-only Bazel target `:vehicle_gen_types` in the `com-api-gen`
 package for C++ consumers. The existing `:vehicle_gen_cpp` target additionally
@@ -28,8 +27,10 @@ exports the interfaces to the Rust FFI registry.
 
 | Interface | Instance Specifier | Sample Layout |
 | --- | --- | --- |
-| `HighBeamTx` | `/vehicle_high_beam/local_tx` | `HighBeamCommand` for boolean/uint8, `BodySignalText` for strings |
-| `VehicleHighBeamRx` | `/vehicle_high_beam/network_rx` | `HighBeamState` for booleans, `HighBeamCommand` for uint8, `BodySignalText` for strings |
+| `BodyControlModuleTx` | `/body_control_module/local_tx` | `HighBeamCommand` for boolean/uint8, `BodySignalText` for strings |
+| `BodyControlModuleRx` | `/body_control_module/network_rx` | `HighBeamState` for booleans, `HighBeamCommand` for uint8, `BodySignalText` for strings |
+| `HighBeamTx` | `/vehicle_high_beam/local_tx` | `HighBeamCommand` |
+| `VehicleHighBeamRx` | `/vehicle_high_beam/network_rx` | `HighBeamState` |
 
 `HighBeamState.value` is a native boolean. Pre-serialized samples contain
 `size` and `data`: set `size = 1` for boolean/uint8 values, or the UTF-8 byte
@@ -40,9 +41,10 @@ the gateway serializer's shared-memory layout.
 
 The example's [etc/mw_com_config.json](etc/mw_com_config.json) contains the
 matching Tx/Rx services and event IDs. From the integration workspace root,
-run `python3 sdv-hack-demo/configure_signals.py --write` to synchronize this
-config and the C++ event list from the body-signal manifest. This adds service
-definitions, not automatic body-signal publishers or application controls.
+run `python3 sdv-hack-demo/tools/configure_signals.py --write` to synchronize
+this config and the C++ event lists from the body-signal manifest. This adds
+service definitions, not automatic body-signal publishers or application
+controls.
 
 From the `communication` workspace, run the interface regression tests:
 

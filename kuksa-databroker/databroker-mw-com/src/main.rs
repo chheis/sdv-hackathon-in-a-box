@@ -34,18 +34,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = DemoArgs::parse()?;
     let mut config = ProviderConfig::load_json(&args.provider_config)?;
-    if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() == Ok("0") {
-        for mapping in &mut config.mappings {
-            if mapping
-                .actuation_binding
-                .as_ref()
-                .is_some_and(|binding| binding.service == "/body_control_module_tx")
-            {
-                mapping.direction = Direction::Datapoint;
-                mapping.actuation_binding = None;
-            }
-        }
-    }
+    configure_command_mode(
+        &mut config,
+        std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() == Ok("0"),
+    );
     // The generated provider config is the source of truth. Optional filtering
     // is applied before Databroker runtime IDs are assigned below.
     if let Some(included_paths) = args.included_paths() {
@@ -79,11 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Starting Databroker with in-process mw::com provider"
     );
 
-    let apis = [
-        grpc::server::Api::KuksaValV1,
-        grpc::server::Api::KuksaValV2,
-        grpc::server::Api::SdvDatabrokerV1,
-    ];
+    let apis = [grpc::server::Api::KuksaValV1, grpc::server::Api::KuksaValV2];
     let server = grpc::server::serve_tcp(
         args.address,
         broker,
@@ -119,6 +107,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join()
         .map_err(|_| "mw::com provider worker thread panicked")?;
     Ok(())
+}
+
+fn configure_command_mode(config: &mut ProviderConfig, direct_mode: bool) {
+    if direct_mode {
+        for mapping in &mut config.mappings {
+            if mapping
+                .actuation_binding
+                .as_ref()
+                .is_some_and(|binding| binding.service == "/body_control_module_tx")
+            {
+                mapping.direction = Direction::Datapoint;
+                mapping.actuation_binding = None;
+            }
+        }
+    }
 }
 
 fn send_shutdown(tx: &mut Option<oneshot::Sender<()>>) {

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check high-beam sweep timing using loopback UDP and no GPIO hardware."""
+"""Check remote menu publication using loopback UDP and no GPIO hardware."""
 
 import argparse
 import json
@@ -14,16 +14,11 @@ import tempfile
 import time
 
 
-def main(binary):
-    source = Path(__file__).resolve().parents[1] / "signal_routes.json"
-    route = next(
-        route for route in json.loads(source.read_text())["routes"]
-        if route["name"] == "high_beam"
-    )
+def collect_samples(binary, routes, option, answer=None):
     with tempfile.TemporaryDirectory(prefix="sdv-sweep-test-") as directory:
         root = Path(directory)
         config = root / "routes.json"
-        config.write_text(json.dumps({"routes": [route]}))
+        config.write_text(json.dumps({"routes": routes}))
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
             receiver.bind(("127.0.0.1", 0))
             receiver.settimeout(0.25)
@@ -41,7 +36,8 @@ def main(binary):
                 "HIGH_BEAM_GPIO_OUTPUT_CHIP": str(root / "no-gpio"),
                 "SDV_KVS_DIR": str(root / "state"),
             })
-            with (root / "remote.log").open("w+") as output:
+            log_path = root / "remote.log"
+            with log_path.open("w+") as output:
                 process = subprocess.Popen(
                     [str(Path(binary).resolve())],
                     stdin=subprocess.PIPE,
@@ -53,10 +49,17 @@ def main(binary):
                 )
                 samples = []
                 try:
-                    process.stdin.write("4\n")
+                    process.stdin.write(f"{option}\n")
                     process.stdin.flush()
-                    deadline = time.monotonic() + 25
-                    quit_at = time.monotonic() + 17
+                    if answer is not None:
+                        prompt_deadline = time.monotonic() + 3
+                        while "PerformanceMode value (" not in log_path.read_text():
+                            assert time.monotonic() < prompt_deadline, log_path.read_text()
+                            time.sleep(0.02)
+                        process.stdin.write(f"{answer}\n")
+                        process.stdin.flush()
+                    deadline = time.monotonic() + 6
+                    quit_at = time.monotonic() + 1.5
                     quit_sent = False
                     while time.monotonic() < deadline:
                         if not quit_sent and time.monotonic() >= quit_at:
@@ -69,21 +72,39 @@ def main(binary):
                             if process.poll() is not None:
                                 break
                             continue
-                        if len(data) >= 15 and int.from_bytes(data[10:12], "big") == route["remoteEvent"]:
-                            samples.append((time.monotonic(), data[14]))
+                        if len(data) >= 15:
+                            event = int.from_bytes(data[10:12], "big")
+                            samples.append((time.monotonic(), event, data[14:14 + data[12]]))
                     process.wait(timeout=3)
                     if process.returncode:
                         output.seek(0)
                         raise AssertionError(output.read())
-                    first_true = next(t for t, value in samples if value == 1)
-                    following_false = next(t for t, value in samples if value == 0 and t > first_true)
-                    assert following_false - first_true >= 4.5, samples
-                    assert any(value == 0 and t < first_true for t, value in samples), samples
-                    print("PASS: false -> true -> false; periodic publisher did not overwrite test true")
+                    return samples
                 finally:
                     if process.poll() is None:
                         process.terminate()
                         process.wait(timeout=5)
+
+
+def main(binary):
+    source = Path(__file__).resolve().parents[1] / "config/signal_routes.json"
+    routes = {route["name"]: route for route in json.loads(source.read_text())["routes"]}
+    high_beam = routes["high_beam"]
+    samples = collect_samples(binary, [high_beam], 4)
+    beam_samples = [(t, payload) for t, event, payload in samples if event == high_beam["remoteEvent"]]
+    first_true = next(t for t, value in beam_samples if value == b"\x01")
+    preceding_false = max(t for t, value in beam_samples if value == b"\x00" and t < first_true)
+    following_false = next(t for t, value in beam_samples if value == b"\x00" and t > first_true)
+    for gap in (first_true - preceding_false, following_false - first_true):
+        assert 0.18 <= gap <= 1.0, samples
+    print(f"PASS: option 4 high-beam false -> true -> false in {following_false - preceding_false:.2f}s")
+
+    mode = routes["transmission_performance_mode"]
+    for answer, expected in (("SPORT", [(mode["remoteEvent"], b"SPORT")]), ("INVALID", [])):
+        samples = collect_samples(binary, [high_beam, routes["parking_lights"], mode], 5, answer)
+        test_samples = [(event, payload) for _, event, payload in samples if event != high_beam["remoteEvent"]]
+        assert test_samples == expected, samples
+    print("PASS: option 5 publishes the selected mode once and publishes nothing for invalid input")
 
 
 if __name__ == "__main__":

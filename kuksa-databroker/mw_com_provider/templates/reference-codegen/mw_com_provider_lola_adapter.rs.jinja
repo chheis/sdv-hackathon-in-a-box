@@ -202,6 +202,7 @@ impl GeneratedReceiveSubscription {
                         instance: instance_name.clone(),
                         member: "{{ event.name }}".into(),
                         value: {{ mw_value_expr(rust_field_type(ns, event), "sample." ~ (event.provider.field | default("value"))) }},
+                        kind: crate::transport::MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: {% if struct_has_field(ns, event, "quality") == "true" %}score_quality(sample.quality)?{% else %}SignalQuality::Valid{% endif %},
                     });

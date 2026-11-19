@@ -50,6 +50,7 @@ impl StubbedScoreMwComApplication {
                 instance: "front_vehicle".into(),
                 member: "speed".into(),
                 value: MwComValue::F64(speed),
+                kind: mw_com_provider::transport::MwComMessageKind::Datapoint,
                 source_timestamp: Some(SystemTime::now()),
                 quality: SignalQuality::Valid,
             })

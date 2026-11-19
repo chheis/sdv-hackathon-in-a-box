@@ -21,6 +21,19 @@ exports_files(
 )
 
 cc_test(
+    name = "shared_memory_slot_manager_test",
+    size = "small",
+    srcs = ["shared_memory_slot_manager_test.cpp"],
+    features = COMPILER_WARNING_FEATURES,
+    deps = [
+        "//score/gateway_ipc_binding",
+        "//score/socom",
+        "@googletest//:gtest_main",
+        "@score_baselibs//score/mw/log:backend_stub_testutil",
+    ],
+)
+
+cc_test(
     name = "gateway_ipc_binding_test",
     size = "small",
     srcs = glob(include = [

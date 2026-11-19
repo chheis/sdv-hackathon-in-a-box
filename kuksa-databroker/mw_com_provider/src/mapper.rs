@@ -13,7 +13,7 @@
 
 use crate::config::{ProviderConfig, SignalMapping, VssDataType};
 use crate::error::MwComProviderError;
-use crate::transport::{MwComMessage, MwComValue};
+use crate::transport::{MwComMessage, MwComMessageKind, MwComValue};
 use databroker::broker::{ActuationChange, DataValue, Datapoint, EntryUpdate};
 use databroker::types::{SignalId, TimeInterval};
 use std::collections::HashMap;
@@ -40,6 +40,7 @@ impl MwComKey {
 pub struct MwComMapper {
     config: ProviderConfig,
     by_member: HashMap<MwComKey, SignalMapping>,
+    by_actuation_binding: HashMap<MwComKey, SignalMapping>,
     by_signal_id: HashMap<i32, SignalMapping>,
 }
 
@@ -47,6 +48,7 @@ impl MwComMapper {
     pub fn new(config: ProviderConfig) -> Result<Self, MwComProviderError> {
         config.validate()?;
         let mut by_member = HashMap::new();
+        let mut by_actuation_binding = HashMap::new();
         let mut by_signal_id = HashMap::new();
 
         // Build both lookup directions once. The receive path indexes by
@@ -56,12 +58,19 @@ impl MwComMapper {
                 MwComKey::new(&mapping.service, &mapping.instance, &mapping.member),
                 mapping.clone(),
             );
+            if let Some(binding) = &mapping.actuation_binding {
+                by_actuation_binding.insert(
+                    MwComKey::new(&binding.service, &binding.instance, &binding.member),
+                    mapping.clone(),
+                );
+            }
             by_signal_id.insert(mapping.signal_id, mapping.clone());
         }
 
         Ok(Self {
             config,
             by_member,
+            by_actuation_binding,
             by_signal_id,
         })
     }
@@ -142,6 +151,50 @@ impl MwComMapper {
         ))
     }
 
+    pub fn command_message_to_target_update(
+        &self,
+        message: &MwComMessage,
+    ) -> Result<(i32, EntryUpdate), MwComProviderError> {
+        if message.kind != MwComMessageKind::ActuatorTarget {
+            return Err(MwComProviderError::Mapping(
+                "mw::com command must be marked as an actuator target".into(),
+            ));
+        }
+        let key = MwComKey::new(&message.service, &message.instance, &message.member);
+        let mapping = self.by_actuation_binding.get(&key).ok_or_else(|| {
+            MwComProviderError::Mapping(format!(
+                "no actuator target mapping for {}:{}:{}",
+                message.service, message.instance, message.member
+            ))
+        })?;
+
+        if !mapping.direction.accepts_actuation() {
+            return Err(MwComProviderError::Mapping(format!(
+                "mapping for {} does not accept actuation",
+                mapping.vss_path
+            )));
+        }
+
+        qualify_message(
+            message,
+            mapping,
+            Duration::from_millis(self.config.stale_after_ms),
+        )?;
+        let datapoint = Datapoint {
+            ts: SystemTime::now(),
+            source_ts: message.source_timestamp,
+            value: convert_value(&message.value, mapping)?,
+        };
+
+        Ok((
+            mapping.signal_id,
+            EntryUpdate {
+                actuator_target: Some(Some(datapoint)),
+                ..Default::default()
+            },
+        ))
+    }
+
     pub fn actuation_to_message(
         &self,
         change: &ActuationChange,
@@ -171,6 +224,7 @@ impl MwComMapper {
                 .as_ref()
                 .map_or_else(|| mapping.member.clone(), |binding| binding.member.clone()),
             value: data_value_to_mw_com(&change.data_value, mapping)?,
+            kind: MwComMessageKind::ActuatorTarget,
             source_timestamp: Some(SystemTime::now()),
             quality: mapping.required_quality,
         })
@@ -442,6 +496,7 @@ mod tests {
             instance: "front".into(),
             member: member.into(),
             value,
+            kind: MwComMessageKind::Datapoint,
             source_timestamp: Some(SystemTime::now()),
             quality: SignalQuality::Valid,
         }
@@ -510,6 +565,35 @@ mod tests {
     }
 
     #[test]
+    fn maps_app_command_to_actuator_target_not_current_value() {
+        let mut signal = mapping(1, Direction::Bidirectional, VssDataType::Bool);
+        signal.actuation_binding = Some(crate::config::ActuationBinding {
+            service: "/vehicle_high_beam_tx".into(),
+            instance: "local_tx".into(),
+            member: "high_beam_state".into(),
+        });
+        let mapper = mapper_with(vec![signal]);
+        let command = MwComMessage {
+            service: "/vehicle_high_beam_tx".into(),
+            instance: "local_tx".into(),
+            member: "high_beam_state".into(),
+            value: MwComValue::Bool(true),
+            kind: MwComMessageKind::ActuatorTarget,
+            source_timestamp: Some(SystemTime::now()),
+            quality: SignalQuality::Valid,
+        };
+
+        let (id, update) = mapper.command_message_to_target_update(&command).unwrap();
+
+        assert_eq!(id, 1);
+        assert!(update.datapoint.is_none());
+        assert_eq!(
+            update.actuator_target.unwrap().unwrap().value,
+            DataValue::Bool(true)
+        );
+    }
+
+    #[test]
     fn converts_scaled_datapoint() {
         let mapper = mapper();
         let message = MwComMessage {
@@ -517,6 +601,7 @@ mod tests {
             instance: "front".into(),
             member: "speed".into(),
             value: MwComValue::F64(10.0),
+            kind: MwComMessageKind::Datapoint,
             source_timestamp: Some(SystemTime::now()),
             quality: SignalQuality::Valid,
         };
@@ -534,6 +619,7 @@ mod tests {
             instance: "front".into(),
             member: "speed".into(),
             value: MwComValue::F64(10.0),
+            kind: MwComMessageKind::Datapoint,
             source_timestamp: Some(SystemTime::now()),
             quality: SignalQuality::Valid,
         };
@@ -566,6 +652,7 @@ mod tests {
             instance: "front".into(),
             member: "speed".into(),
             value: MwComValue::F64(10.0),
+            kind: MwComMessageKind::Datapoint,
             source_timestamp: Some(SystemTime::now()),
             quality: SignalQuality::Degraded,
         };
@@ -583,6 +670,7 @@ mod tests {
             instance: "front".into(),
             member: "speed".into(),
             value: MwComValue::F64(10.0),
+            kind: MwComMessageKind::Datapoint,
             source_timestamp: Some(SystemTime::now() - Duration::from_millis(2_000)),
             quality: SignalQuality::Valid,
         };

@@ -15,8 +15,7 @@ use crate::config::ProviderConfig;
 use crate::config::{Direction, SignalMapping, VssDataType};
 use crate::error::MwComProviderError;
 use crate::mapper::MwComMapper;
-use crate::transport::MwComMessage;
-use crate::transport::MwComTransport;
+use crate::transport::{MwComMessage, MwComMessageKind, MwComTransport};
 use async_trait::async_trait;
 use databroker::broker::{
     ActuationChange, ActuationError, ActuationProvider, DataBroker, DataType, EntryType, Field,
@@ -203,10 +202,15 @@ impl MwComProvider {
 
     async fn recv_and_publish_one(&self) -> Result<(), MwComProviderError> {
         let message = self.transport.write().await.recv().await?;
-        let (signal_id, update) = self.mapper.message_to_update(&message)?;
+        let (signal_id, update) = match message.kind {
+            MwComMessageKind::Datapoint => self.mapper.message_to_update(&message)?,
+            MwComMessageKind::ActuatorTarget => {
+                self.mapper.command_message_to_target_update(&message)?
+            }
+        };
         let broker = self.broker.authorized_access(&self.permissions);
         broker
-            .update_entries_from_provider(vec![(signal_id, update)])
+            .update_entries(vec![(signal_id, update)])
             .await
             .map_err(|errors| MwComProviderError::BrokerUpdate(format!("{errors:?}")))?;
         debug!(signal_id, "mw::com sample written to Databroker");
@@ -273,9 +277,8 @@ where
         let actuator_signal_ids = self.mapper.actuator_signal_ids();
         let actuator_count = actuator_signal_ids.len();
         if !actuator_signal_ids.is_empty() {
-            // val.v2 actuation reaches this provider callback directly. val.v1
-            // CLI writes targets or current values; the forwarder below
-            // feeds both into the same middleware send queue.
+            // val.v2 actuation reaches this callback directly; val.v1 target
+            // writes reach the same middleware queue through the forwarder.
             broker
                 .provide_actuation(
                     actuator_signal_ids,
@@ -301,7 +304,7 @@ where
     async fn start_command_forwarder(&self) -> Result<(), MwComProviderError> {
         let mut target_filters = HashMap::new();
         for signal_id in self.mapper.actuator_signal_ids() {
-            target_filters.insert(signal_id, HashSet::from([Field::ActuatorTarget, Field::Datapoint]));
+            target_filters.insert(signal_id, HashSet::from([Field::ActuatorTarget]));
         }
 
         if target_filters.is_empty() {
@@ -332,19 +335,7 @@ where
                 };
 
                 for notification in entry_updates.updates {
-                    if notification.provider_feedback {
-                        continue;
-                    }
-
-                    // A combined write is one command; an explicit target wins.
-                    let datapoint = if notification.fields.contains(&Field::ActuatorTarget) {
-                        notification.update.actuator_target.flatten()
-                    } else if notification.fields.contains(&Field::Datapoint) {
-                        notification.update.datapoint
-                    } else {
-                        None
-                    };
-                    let Some(datapoint) = datapoint else {
+                    let Some(datapoint) = notification.update.actuator_target.flatten() else {
                         continue;
                     };
 
@@ -502,10 +493,15 @@ where
     }
 
     async fn publish_message(&self, message: MwComMessage) -> Result<(), MwComProviderError> {
-        let (signal_id, update) = self.mapper.message_to_update(&message)?;
+        let (signal_id, update) = match message.kind {
+            MwComMessageKind::Datapoint => self.mapper.message_to_update(&message)?,
+            MwComMessageKind::ActuatorTarget => {
+                self.mapper.command_message_to_target_update(&message)?
+            }
+        };
         let broker = self.broker.authorized_access(&self.permissions);
         broker
-            .update_entries_from_provider(vec![(signal_id, update)])
+            .update_entries(vec![(signal_id, update)])
             .await
             .map_err(|errors| MwComProviderError::BrokerUpdate(format!("{errors:?}")))?;
         debug!(signal_id, "mw::com sample written to Databroker");
@@ -565,7 +561,7 @@ impl SignalProvider for QueuedSignalProvider {
     }
 
     async fn get_signals_values_from_provider(
-        &self,
+        &mut self,
         _signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
         Err(())
@@ -710,7 +706,7 @@ impl SignalProvider for MwComProvider {
     }
 
     async fn get_signals_values_from_provider(
-        &self,
+        &mut self,
         _signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
         Err(())
@@ -1051,6 +1047,7 @@ mod tests {
                 instance: "front_vehicle".into(),
                 member: "speed".into(),
                 value: MwComValue::F64(302.4),
+                kind: MwComMessageKind::Datapoint,
                 source_timestamp: Some(SystemTime::now()),
                 quality: SignalQuality::Valid,
             })
@@ -1105,10 +1102,83 @@ mod tests {
 
         assert_eq!(message.member, "target_speed");
         assert_eq!(message.value, MwComValue::F64(88.0));
+        assert_eq!(
+            broker.authorized_access(&ALLOW_ALL)
+                .get_datapoint_by_path("Vehicle.Speed").await.unwrap().value,
+            DataValue::NotAvailable,
+        );
+
+        broker.authorized_access(&ALLOW_ALL)
+            .actuate(&signal_id, &DataValue::Double(90.0)).await.unwrap();
+        provider.drain_actuation_queue().await.unwrap();
+        assert_eq!(outbound_rx.try_recv().unwrap().value, MwComValue::F64(90.0));
+        assert!(outbound_rx.try_recv().is_err(), "actuation callback sent duplicate commands");
     }
 
     #[tokio::test]
-    async fn worker_forwards_publishes_for_all_command_mappings_without_echoing_feedback() {
+    async fn worker_records_app_command_as_target_and_forwards_it_once() {
+        let (broker, signal_id) = broker_with_entry(EntryType::Actuator, DataType::Bool).await;
+        let mut high_beam_mapping = mapping(Direction::Bidirectional, VssDataType::Bool);
+        high_beam_mapping.signal_id = signal_id;
+        high_beam_mapping.actuation_binding = Some(crate::config::ActuationBinding {
+            service: "/vehicle_high_beam_tx".into(),
+            instance: "local_tx".into(),
+            member: "high_beam_state".into(),
+        });
+        let (_inbound_tx, inbound_rx) = mpsc::channel(1);
+        let (outbound_tx, mut outbound_rx) = mpsc::channel(2);
+        let mut provider = MwComProviderWorker::new(
+            broker.clone(),
+            ALLOW_ALL.clone(),
+            config(high_beam_mapping),
+            MockMwComTransport::new(inbound_rx, outbound_tx),
+        )
+        .unwrap();
+        provider.register_with_broker().await.unwrap();
+
+        provider
+            .publish_message(MwComMessage {
+                service: "/vehicle_high_beam_tx".into(),
+                instance: "local_tx".into(),
+                member: "high_beam_state".into(),
+                value: MwComValue::Bool(true),
+                kind: MwComMessageKind::ActuatorTarget,
+                source_timestamp: Some(SystemTime::now()),
+                quality: SignalQuality::Valid,
+            })
+            .await
+            .unwrap();
+
+        let forwarded = timeout(Duration::from_secs(1), async {
+            loop {
+                provider.drain_actuation_queue().await.unwrap();
+                if let Ok(message) = outbound_rx.try_recv() {
+                    break message;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(forwarded.member, "high_beam_state");
+        assert_eq!(forwarded.value, MwComValue::Bool(true));
+        assert_eq!(
+            broker
+                .authorized_access(&ALLOW_ALL)
+                .get_datapoint_by_path("Vehicle.Speed")
+                .await
+                .unwrap()
+                .value,
+            DataValue::NotAvailable
+        );
+        assert!(
+            outbound_rx.try_recv().is_err(),
+            "app command was forwarded more than once"
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_forwards_only_targets_without_echoing_current_values_or_feedback() {
         for direction in [Direction::Actuator, Direction::Bidirectional, Direction::Datapoint] {
             for (datatype, broker_type, value, wire_value) in [
                 (VssDataType::Bool, DataType::Bool, DataValue::Bool(true), MwComValue::Bool(true)),
@@ -1147,7 +1217,6 @@ mod tests {
                 ).unwrap();
                 provider.register_with_broker().await.unwrap();
 
-                // Repeated publishes must remain commands for continuous mappings.
                 for _ in 0..2 {
                     broker.authorized_access(&ALLOW_ALL).update_entries(vec![(
                         signal_id,
@@ -1159,6 +1228,22 @@ mod tests {
                         },
                     )]).await.unwrap();
                     if direction.accepts_actuation() {
+                        assert!(timeout(Duration::from_millis(30), async {
+                            loop {
+                                provider.drain_actuation_queue().await.unwrap();
+                                if let Ok(message) = outbound_rx.try_recv() { break message; }
+                                tokio::task::yield_now().await;
+                            }
+                        }).await.is_err(), "current-value publish was forwarded as a command");
+                        broker.authorized_access(&ALLOW_ALL).update_entries(vec![(
+                            signal_id,
+                            databroker::broker::EntryUpdate {
+                                actuator_target: Some(Some(databroker::broker::Datapoint {
+                                    ts: SystemTime::now(), source_ts: None, value: value.clone(),
+                                })),
+                                ..Default::default()
+                            },
+                        )]).await.unwrap();
                         let message = timeout(Duration::from_secs(1), async {
                             loop {
                                 provider.drain_actuation_queue().await.unwrap();
@@ -1189,6 +1274,7 @@ mod tests {
                         instance: "front_vehicle".into(),
                         member: "speed".into(),
                         value: feedback,
+                        kind: MwComMessageKind::Datapoint,
                         source_timestamp: Some(SystemTime::now()),
                         quality: SignalQuality::Valid,
                     }).await.unwrap();

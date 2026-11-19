@@ -1,8 +1,0 @@
-{
-  "appId": "ADDONL",
-  "appDesc": "addonloader",
-  "logLevel": "kDebug",
-  "logLevelThresholdConsole": "kDebug",
-  "logMode": "kRemote|kConsole",
-  "dynamicDatarouterIdentifiers" : true
-}

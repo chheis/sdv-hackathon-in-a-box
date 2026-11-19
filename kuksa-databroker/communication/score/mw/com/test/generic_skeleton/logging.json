@@ -1,8 +1,0 @@
-{
-  "appId": "GENT",
-  "appDesc": "generic_typed_interaction_test",
-  "logLevel": "kInfo",
-  "logLevelThresholdConsole": "kInfo",
-  "logMode": "kConsole",
-  "dynamicDatarouterIdentifiers" : true
-}

@@ -1,7 +1,0 @@
-{
-  "appId": "FSGN",
-  "appDesc": "field_set_and_get_and_notifier",
-  "logLevel": "kDebug",
-  "logLevelThresholdConsole": "kDebug",
-  "logMode": "kRemote|kConsole"
-}

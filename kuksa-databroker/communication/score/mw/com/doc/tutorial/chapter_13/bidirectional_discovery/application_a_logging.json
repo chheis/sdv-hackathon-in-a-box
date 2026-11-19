@@ -1,7 +1,0 @@
-{
-    "appId": "BiA",
-    "appDesc": "bidirectional_discovery_application_a",
-    "logLevel": "kInfo",
-    "logLevelThresholdConsole": "kInfo",
-    "logMode": "kConsole"
-}

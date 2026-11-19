@@ -1,5 +1,9 @@
 # Demo Architecture
 
+> This is a historical copy. See the [repository-root architecture](../ARCHITECTURE.md)
+> for the current integration; the demo and S-CORE sources now live at the
+> repository root.
+
 [Back to the operator guide](README.md)
 
 ## Contents
@@ -85,7 +89,7 @@ Names and IDs belong to different layers and are mapped explicitly, not derived 
 | SOME/IP event / eventgroup ID | `0x8434` (33844) | `0x8435` (33845) |
 | Wire payload | One byte, `0` or `1` | One byte, `0` or `1` |
 
-See the [provider mappings](sdv-hack-demo/config/gateway_provider_config.json), [LoLa manifest](inc_someip_gateway/score/gatewayd/etc/mw_com_config.json), [gateway config](sdv-hack-demo/config/mw_someip_config.json), and [routes](sdv-hack-demo/signal_routes.json). High-beam retains event pair `0x8430/0x8431`; other body events use pairs `0x8434/0x8435` through `0x8488/0x8489`.
+See the [provider mappings](../sdv-hack-demo/config/gateway_provider_config.json), [LoLa manifest](../inc_someip_gateway/score/gatewayd/etc/mw_com_config.json), [gateway config](../sdv-hack-demo/config/mw_someip_config.json), and [routes](../sdv-hack-demo/config/signal_routes.json). High-beam retains event pair `0x8430/0x8431`; other body events use pairs `0x8434/0x8435` through `0x8488/0x8489`.
 
 `local_service_instances` selects local LoLa offers to forward outward. `remote_service_instances` selects incoming network services to expose locally through generic skeletons. SOME/IP carries numeric IDs, not the text `body_control_module_tx`.
 
@@ -106,11 +110,11 @@ The bridge forwards payload bytes unchanged. The 32-byte UDP payload bounds floa
 
 The gateway keys SOCom connectors by service type name, so one type must not have both local and remote instances. The demo uses separate types per direction: `body_control_module_tx`/`body_control_module_rx` and `vehicle::VehicleDynamicsService`/`vehicle::VehicleDynamicsService_rx`. Both dynamics types retain SOME/IP service ID `6433`.
 
-The [serializer shim](sdv-hack-demo/serializer/serializer_shim.cpp) maps the speed `..._rx` service name to the original name and forwards calls to the gateway serializer. Packaging ships the shim as `score_com_serializer.so` and the base as `score_com_serializer_base.so`. Both must remain in the vehicle directory, which the launcher prepends to `LD_LIBRARY_PATH`.
+The [serializer shim](../sdv-hack-demo/serializer/serializer_shim.cpp) maps the speed `..._rx` service name to the original name and forwards calls to the gateway serializer. Packaging ships the shim as `score_com_serializer.so` and the base as `score_com_serializer_base.so`. Both must remain in the vehicle directory, which the launcher prepends to `LD_LIBRARY_PATH`.
 
 ## Speed and Acknowledgements
 
-The [vehicle-dynamics example](communication/score/mw/com/example/vehicle-dynamics-example/BUILD) supplies shared API definitions and build/link dependencies. Its [generated C++ interface](communication/score/mw/com/example/vehicle-dynamics-example/com-api-gen/vehicle_gen.h) declares `HighBeamTx`, `VehicleHighBeamRx`, and `VehicleDynamicsService`. Building those dependencies does not run the standalone Rust example inside the Databroker.
+The [vehicle-dynamics example](../communication/score/mw/com/example/vehicle-dynamics-example/BUILD) supplies shared API definitions and build/link dependencies. Its [generated C++ interface](../communication/score/mw/com/example/vehicle-dynamics-example/com-api-gen/vehicle_gen.h) declares `HighBeamTx`, `VehicleHighBeamRx`, and `VehicleDynamicsService`. Building those dependencies does not run the standalone Rust example inside the Databroker.
 
 Outgoing speed uses `/Vehicle/Service1/Instance`; incoming speed uses `/Vehicle/Service2/Instance`. The read-only `Vehicle.Speed` mapping uses `GatewaySubscription::Speed` and a typed `Subscription<SpeedSample>`, decoding the `f64` value and quality. Its nine-byte wire payload is a big-endian double plus a quality byte (currently `3`); the native sample occupies 16 bytes. This is not a generic body float payload.
 
@@ -120,16 +124,16 @@ The dynamics service defines `speed` and `speedAck`. The remote echoes a vehicle
 
 | File | Responsibility |
 | --- | --- |
-| [Body manifest](sdv-hack-demo/config/body_signals.json) | Source of truth for 44 body, door, and powertrain signals |
-| [Synchronizer](sdv-hack-demo/configure_signals.py) | Updates gateway/LoLa/vsomeip configs, routes, and C++ declarations |
-| [Provider generator](sdv-hack-demo/gateway_provider_codegen.py) | Generates mappings and Rust gateway interfaces/metadata, including speed |
-| [Gateway config](sdv-hack-demo/config/mw_someip_config.json) | Demo service types, instances, and serializers |
-| [vsomeip config](inc_someip_gateway/tests/integration/vsomeip-gateway-services.json) | Routing, applications, and eventgroups |
-| [Bridge](sdv-hack-demo/bridge/main.cpp) | Local SOME/IP-to-UDP relay in both directions |
-| [Remote app](sdv-hack-demo/remote_app/main.cpp) | UDP state source/sink, menu, GPIO, and feedback |
-| [Vehicle launcher](sdv-hack-demo/deploy/start-vehicle.sh) | Starts gateway daemons, bridge, and selected vehicle profile |
-| [Remote launcher](sdv-hack-demo/deploy/start-remote.sh) | Starts the remote UDP app |
-| [Packaging script](sdv-hack-demo/package-aarch64.sh) | Collects matching binaries, configs, runfiles, and launchers |
+| [Body manifest](../sdv-hack-demo/config/body_signals.json) | Source of truth for 44 body, door, and powertrain signals |
+| [Synchronizer](../sdv-hack-demo/tools/configure_signals.py) | Updates gateway/LoLa/vsomeip configs, routes, and C++ declarations |
+| [Provider generator](../sdv-hack-demo/tools/gateway_provider_codegen.py) | Generates mappings and Rust gateway interfaces/metadata, including speed |
+| [Gateway config](../sdv-hack-demo/config/mw_someip_config.json) | Demo service types, instances, and serializers |
+| [vsomeip config](../inc_someip_gateway/tests/integration/vsomeip-gateway-services.json) | Routing, applications, and eventgroups |
+| [Bridge](../sdv-hack-demo/bridge/main.cpp) | Local SOME/IP-to-UDP relay in both directions |
+| [Remote app](../sdv-hack-demo/remote_app/main.cpp) | UDP state source/sink, menu, GPIO, and feedback |
+| [Vehicle launcher](../sdv-hack-demo/deploy/start-vehicle.sh) | Starts gateway daemons, bridge, and selected vehicle profile |
+| [Remote launcher](../sdv-hack-demo/deploy/start-remote.sh) | Starts the remote UDP app |
+| [Packaging script](../sdv-hack-demo/scripts/package-aarch64.sh) | Collects matching binaries, configs, runfiles, and launchers |
 
 The provider generator also refreshes `mw_com_provider/generated/gateway_bindings.rs` and `gateway_runtime.rs` in the required KUKSA checkout. Its composition entry point is `databroker-mw-com/src/main.rs`. Gateway-compatible mappings must use the matching gateway adapter and LoLa manifest, not the standalone `BodyControlModuleService` profile's different names and native sample layouts.
 
@@ -143,13 +147,13 @@ The vehicle launcher waits for gateway receive shared memory before KUKSA startu
 
 The original integration baseline is upstream `eclipse-score/inc_someip_gateway` `main`, commit `32624b21`, plus integration changes: speed/boolean serializer and schema support, `eventgroup_ids` handling and tracing in `someipd`, and the empty-handle guard, proxy-creation retry, and `App->SOME/IP` tracing in `gatewayd`. Treat this as integration history, not a substitute for checking the current checkout.
 
-The integration deliberately keeps `score_communication` at `0.3.0` and `score_baselibs` at `0.2.12` in [inc_someip_gateway/MODULE.bazel](inc_someip_gateway/MODULE.bazel), because upgrading the gateway alone changes the LoLa runtime also linked by KUKSA through `communication/`. The mw::com IPC binding target `//score/gateway_ipc_binding:gateway_ipc_binding_mw_com` and its aggregate test are disabled through `target_compatible_with`. Re-enable only after upgrading communication and gateway together and revalidating the complete flow.
+The integration deliberately keeps `score_communication` at `0.3.0` and `score_baselibs` at `0.2.12` in [inc_someip_gateway/MODULE.bazel](../inc_someip_gateway/MODULE.bazel), because upgrading the gateway alone changes the LoLa runtime also linked by KUKSA through `communication/`. The mw::com IPC binding target `//score/gateway_ipc_binding:gateway_ipc_binding_mw_com` and its aggregate test are disabled through `target_compatible_with`. Re-enable only after upgrading communication and gateway together and revalidating the complete flow.
 
 The `--config=sdv-demo` build configuration compiles legacy host C dependencies as GNU C11, avoiding GLib `bool` field conflicts with GCC 15's C23 default without passing C-only flags to C++ compilation.
 
 ## Standalone BCM Profile
 
-[start-body-control.sh](sdv-hack-demo/deploy/start-body-control.sh) is an isolated alternative packaged as `body-control-aarch64.tar.gz`. It starts the broker/provider with the standalone BCM provider config and LoLa manifest, plus `body-control-module-example`. It does not start gatewayd, someipd, or the bridge, and is not required for the gateway demo. The generic communication inter-domain gateway is also outside this launcher.
+[start-body-control.sh](../sdv-hack-demo/deploy/start-body-control.sh) is an isolated alternative packaged as `body-control-aarch64.tar.gz`. It starts the broker/provider with the standalone BCM provider config and LoLa manifest, plus `body-control-module-example`. It does not start gatewayd, someipd, or the bridge, and is not required for the gateway demo. The generic communication inter-domain gateway is also outside this launcher.
 
 Extract that archive to `~/body-control-demo` and start it independently. Do not mix its config with the gateway vehicle archive.
 

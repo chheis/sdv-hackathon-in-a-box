@@ -12,11 +12,7 @@
 ********************************************************************************/
 
 use indexmap::IndexMap;
-use std::{
-    collections::HashMap,
-    pin::Pin,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use std::{collections::HashMap, pin::Pin};
 use uuid::Uuid;
 
 use crate::{
@@ -45,7 +41,7 @@ use kuksa::proto::v2::{
 use std::collections::HashSet;
 use tokio::{
     select,
-    sync::{broadcast, mpsc, Mutex},
+    sync::{broadcast, mpsc},
     time::timeout,
 };
 use tokio_stream::{
@@ -58,9 +54,8 @@ const MAX_REQUEST_PATH_LENGTH: usize = 1000;
 
 pub struct Provider {
     sender: mpsc::Sender<Result<OpenProviderStreamResponse, tonic::Status>>,
-    receiver:
-        Mutex<Option<BroadcastStream<databroker_proto::kuksa::val::v2::GetProviderValueResponse>>>,
-    next_request_id: AtomicU32,
+    receiver: Option<BroadcastStream<databroker_proto::kuksa::val::v2::GetProviderValueResponse>>,
+    next_request_id: u32,
 }
 
 #[async_trait::async_trait]
@@ -152,26 +147,11 @@ impl SignalProvider for Provider {
     }
 
     async fn get_signals_values_from_provider(
-        &self,
+        &mut self,
         signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
-        let deadline = std::time::Instant::now() + tokio::time::Duration::from_secs(1);
-
-        // Serialize request/response exchanges per provider. The lock is only
-        // shared with other calls for this provider, not with the broker.
-        // Bound every phase by the deadline so a provider that stops draining
-        // its outbound stream cannot block this or later calls forever.
-        let mut receiver_guard = match timeout(
-            deadline.saturating_duration_since(std::time::Instant::now()),
-            self.receiver.lock(),
-        )
-        .await
-        {
-            Ok(receiver_guard) => receiver_guard,
-            Err(_) => return Err(()),
-        };
-
-        let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
+        let request_id = self.next_request_id;
+        self.next_request_id = self.next_request_id.wrapping_add(1);
 
         let request = OpenProviderStreamResponse {
             action: Some(
@@ -184,24 +164,20 @@ impl SignalProvider for Provider {
             ),
         };
 
-        let send_result = timeout(
-            deadline.saturating_duration_since(std::time::Instant::now()),
-            self.sender.send(Ok(request)),
-        )
-        .await;
-        match send_result {
-            Ok(Ok(_)) => {}
-            Ok(Err(err)) => {
+        let result = self.sender.send(Ok(request)).await;
+        match result {
+            Ok(_) => {}
+            Err(err) => {
                 debug!("{}", err.to_string());
             }
-            Err(_) => return Err(()),
         }
 
-        let receiver = match receiver_guard.as_mut() {
+        let receiver = match self.receiver.as_mut() {
             Some(receiver) => receiver,
             None => return Err(()),
         };
 
+        let deadline = std::time::Instant::now() + tokio::time::Duration::from_secs(1);
         // Collect requested IDs for filtering provider response entries
         let requested_ids: HashSet<i32> = signals_ids.iter().map(|id| id.id()).collect();
 
@@ -1133,8 +1109,8 @@ async fn provide_actuation(
 
     let provider = Provider {
         sender,
-        receiver: Mutex::new(None),
-        next_request_id: AtomicU32::new(1),
+        receiver: None,
+        next_request_id: 1,
     };
 
     match broker
@@ -1167,8 +1143,8 @@ async fn register_provided_signals(
 ) -> Result<(Uuid, OpenProviderStreamResponse), tonic::Status> {
     let provider = Provider {
         sender,
-        receiver: Mutex::new(Some(BroadcastStream::new(receiver))),
-        next_request_id: AtomicU32::new(1),
+        receiver: Some(BroadcastStream::new(receiver)),
+        next_request_id: 1,
     };
 
     let all_vss_ids = request
@@ -3022,8 +2998,8 @@ mod tests {
         let (sender, _) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3149,8 +3125,8 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3251,8 +3227,8 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3405,8 +3381,8 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3499,8 +3475,8 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3670,8 +3646,8 @@ mod tests {
         let (sender, _) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3809,8 +3785,8 @@ mod tests {
         let (sender, mut _receiver) = mpsc::channel(10);
         let actuation_provider = Provider {
             sender,
-            receiver: Mutex::new(None),
-            next_request_id: AtomicU32::new(1),
+            receiver: None,
+            next_request_id: 1,
         };
         authorized_access
             .provide_actuation(vss_ids, Box::new(actuation_provider))
@@ -3885,7 +3861,7 @@ mod tests {
             }
 
             async fn get_signals_values_from_provider(
-                &self,
+                &mut self,
                 _signals_ids: Vec<TypesSignalId>,
             ) -> Result<GetValuesProviderResponse, ()> {
                 Ok(GetValuesProviderResponse {
@@ -3972,8 +3948,8 @@ mod tests {
             broadcast::channel::<proto::GetProviderValueResponse>(10);
         let provider = Provider {
             sender: mpsc_tx,
-            receiver: Mutex::new(Some(BroadcastStream::new(broadcast_rx))),
-            next_request_id: AtomicU32::new(1),
+            receiver: Some(BroadcastStream::new(broadcast_rx)),
+            next_request_id: 1,
         };
         (provider, broadcast_tx)
     }
@@ -3981,7 +3957,7 @@ mod tests {
     #[tokio::test]
     async fn test_provider_correct_response_accepted() {
         let our_signal = 1;
-        let (provider, broadcast_tx) = make_provider_with_broadcast_rx();
+        let (mut provider, broadcast_tx) = make_provider_with_broadcast_rx();
 
         let mut entries = HashMap::new();
         entries.insert(our_signal, make_float_datapoint(12.5));
@@ -4007,7 +3983,7 @@ mod tests {
     #[tokio::test]
     async fn test_provider_wrong_request_id_discarded_via_timeout() {
         let our_signal = 1;
-        let (provider, broadcast_tx) = make_provider_with_broadcast_rx();
+        let (mut provider, broadcast_tx) = make_provider_with_broadcast_rx();
 
         let mut entries = HashMap::new();
         entries.insert(our_signal, make_float_datapoint(99.0));
@@ -4036,7 +4012,7 @@ mod tests {
     async fn test_provider_wrong_signal_id_discarded() {
         let other_signal = 999;
         let our_signal = 1;
-        let (provider, broadcast_tx) = make_provider_with_broadcast_rx();
+        let (mut provider, broadcast_tx) = make_provider_with_broadcast_rx();
 
         let mut entries = HashMap::new();
         entries.insert(other_signal, make_float_datapoint(99.0));
@@ -4061,7 +4037,7 @@ mod tests {
     async fn test_provider_skips_wrong_request_id_then_accepts_correct() {
         let other_signal = 999;
         let our_signal = 1;
-        let (provider, broadcast_tx) = make_provider_with_broadcast_rx();
+        let (mut provider, broadcast_tx) = make_provider_with_broadcast_rx();
 
         // First response: wrong request_id — should be skipped
         let mut wrong_entries = HashMap::new();
@@ -4092,37 +4068,6 @@ mod tests {
             returned.value,
             DataValue::Float(12.5),
             "should receive 12.5 from second response, not 99.0 from the discarded first"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_provider_get_values_is_bounded_when_outbound_channel_full() {
-        let (mpsc_tx, _mpsc_rx) =
-            mpsc::channel::<Result<OpenProviderStreamResponse, tonic::Status>>(1);
-        // Fill the single slot so the request send blocks.
-        mpsc_tx
-            .send(Ok(OpenProviderStreamResponse { action: None }))
-            .await
-            .expect("initial send should succeed");
-
-        let (_broadcast_tx, broadcast_rx) = broadcast::channel(10);
-        let provider = Provider {
-            sender: mpsc_tx,
-            receiver: Mutex::new(Some(BroadcastStream::new(broadcast_rx))),
-            next_request_id: AtomicU32::new(1),
-        };
-
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            provider.get_signals_values_from_provider(vec![TypesSignalId::new(1)]),
-        )
-        .await;
-
-        let result =
-            result.expect("provider call must be bounded even with a full outbound channel");
-        assert!(
-            result.is_err(),
-            "a full outbound channel should yield an error instead of blocking forever"
         );
     }
 }

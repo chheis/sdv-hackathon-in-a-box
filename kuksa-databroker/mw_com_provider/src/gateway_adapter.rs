@@ -5,7 +5,7 @@ use crate::gateway_samples::{
 };
 use crate::quality::SignalQuality;
 use crate::score_bindings::{ScoreBinding, ScoreRuntimeAdapter};
-use crate::transport::{MwComMessage, MwComValue};
+use crate::transport::{MwComMessage, MwComMessageKind, MwComValue};
 use async_trait::async_trait;
 use score_com::{
     Builder, CommData, FindServiceSpecifier, InstanceSpecifier, Interface, LolaRuntimeBuilderImpl,
@@ -14,11 +14,22 @@ use score_com::{
 };
 use std::fmt::Debug;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
+
+score_com::interface!(interface ScoreAppCommandIngress { Id = "ScoreAppCommandIngress",
+    high_beam_command: Event<HighBeamCommand>,
+});
 
 type LolaRuntime = LolaRuntimeImpl;
-type TxProducer = <HighBeamTxInterface as Interface>::Producer<LolaRuntime>;
-type TxOfferedProducer = <TxProducer as Producer<LolaRuntime>>::OfferedProducer;
+type BodyTxProducer = <BodyControlModuleTxInterface as Interface>::Producer<LolaRuntime>;
+type BodyTxOfferedProducer = <BodyTxProducer as Producer<LolaRuntime>>::OfferedProducer;
+type VehicleHighBeamProducer = <HighBeamTxInterface as Interface>::Producer<LolaRuntime>;
+type OfferedHighBeamProducer =
+    <VehicleHighBeamProducer as Producer<LolaRuntime>>::OfferedProducer;
+type CommandSubscription = <<LolaRuntime as Runtime>::Subscriber<HighBeamCommand> as Subscriber<
+    HighBeamCommand,
+    LolaRuntime,
+>>::Subscription;
 type BoolSubscription = <<LolaRuntime as Runtime>::Subscriber<HighBeamState> as Subscriber<
     HighBeamState,
     LolaRuntime,
@@ -127,6 +138,7 @@ impl SubscriptionEntry {
             instance: self.instance.clone(),
             member: self.member.clone(),
             value,
+            kind: MwComMessageKind::Datapoint,
             quality,
             source_timestamp: Some(SystemTime::now()),
         }))
@@ -157,8 +169,11 @@ where
 pub struct GatewayScoreRuntimeAdapter {
     config_path: PathBuf,
     runtime: Option<LolaRuntime>,
-    tx: Option<TxOfferedProducer>,
+    body_tx: Option<BodyTxOfferedProducer>,
+    high_beam_tx: Option<OfferedHighBeamProducer>,
     subscriptions: Vec<SubscriptionEntry>,
+    command_subscription: Option<CommandSubscription>,
+    next_command_discovery: Instant,
     cursor: usize,
 }
 
@@ -169,8 +184,11 @@ impl GatewayScoreRuntimeAdapter {
         Self {
             config_path: config_path.into(),
             runtime: None,
-            tx: None,
+            body_tx: None,
+            high_beam_tx: None,
             subscriptions: Vec::new(),
+            command_subscription: None,
+            next_command_discovery: Instant::now(),
             cursor: 0,
         }
     }
@@ -212,6 +230,8 @@ impl GatewayScoreRuntimeAdapter {
         for expected in [
             "/body_control_module/local_tx",
             "/body_control_module/network_rx",
+            "/vehicle_high_beam/local_tx",
+            "/vehicle_high_beam/network_rx",
             "/Vehicle/Service2/Instance",
         ] {
             if !manifest["serviceInstances"]
@@ -228,6 +248,53 @@ impl GatewayScoreRuntimeAdapter {
             }
         }
         Ok(())
+    }
+
+    fn poll_app_command(&mut self) -> Result<Option<MwComMessage>, MwComProviderError> {
+        if self.command_subscription.is_none() && Instant::now() >= self.next_command_discovery {
+            self.next_command_discovery = Instant::now() + Duration::from_millis(250);
+            let instance = InstanceSpecifier::new("/score_app_command/menu_tx")
+                .map_err(|error| Self::error("app command instance", error))?;
+            if let Some(handle) = self
+                .runtime()?
+                .find_service::<ScoreAppCommandIngressInterface>(FindServiceSpecifier::Specific(
+                    instance,
+                ))
+                .get_available_instances()
+                .map_err(|error| Self::error("app command discovery", error))?
+                .into_iter()
+                .next()
+            {
+                let consumer = handle
+                    .build()
+                    .map_err(|error| Self::error("app command consumer", error))?;
+                self.command_subscription = Some(
+                    consumer
+                        .high_beam_command
+                        .subscribe(4)
+                        .map_err(|error| Self::error("app command subscribe", error))?,
+                );
+            }
+        }
+
+        let Some(subscription) = &self.command_subscription else {
+            return Ok(None);
+        };
+        let value = receive(subscription, |sample: &HighBeamCommand| {
+            Ok((
+                MwComValue::Bool(sample.decode_boolean()?),
+                SignalQuality::Valid,
+            ))
+        })?;
+        Ok(value.map(|(value, quality)| MwComMessage {
+            service: "/vehicle_high_beam_tx".into(),
+            instance: "local_tx".into(),
+            member: "high_beam_state".into(),
+            value,
+            kind: MwComMessageKind::ActuatorTarget,
+            quality,
+            source_timestamp: Some(SystemTime::now()),
+        }))
     }
 }
 
@@ -246,13 +313,23 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
         if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() != Ok("0") {
             let instance = InstanceSpecifier::new("/body_control_module/local_tx")
                 .map_err(|error| Self::error("gateway Tx instance", error))?;
-            self.tx = Some(
+            self.body_tx = Some(
                 runtime
-                    .producer_builder::<HighBeamTxInterface>(instance)
+                    .producer_builder::<BodyControlModuleTxInterface>(instance)
                     .build()
                     .map_err(|error| Self::error("gateway Tx build", error))?
                     .offer()
                     .map_err(|error| Self::error("gateway Tx offer", error))?,
+            );
+            let instance = InstanceSpecifier::new("/vehicle_high_beam/local_tx")
+                .map_err(|error| Self::error("high-beam Tx instance", error))?;
+            self.high_beam_tx = Some(
+                runtime
+                    .producer_builder::<HighBeamTxInterface>(instance)
+                    .build()
+                    .map_err(|error| Self::error("high-beam Tx build", error))?
+                    .offer()
+                    .map_err(|error| Self::error("high-beam Tx offer", error))?,
             );
         }
         self.runtime = Some(runtime);
@@ -263,12 +340,20 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
         for subscription in self.subscriptions.drain(..) {
             subscription.unsubscribe();
         }
-        if let Some(tx) = self.tx.take() {
+        if let Some(subscription) = self.command_subscription.take() {
+            let _ = subscription.unsubscribe();
+        }
+        if let Some(tx) = self.body_tx.take() {
             tx.unoffer()
-                .map_err(|error| Self::error("gateway Tx unoffer", error))?;
+                .map_err(|error| Self::error("gateway body Tx unoffer", error))?;
+        }
+        if let Some(tx) = self.high_beam_tx.take() {
+            tx.unoffer()
+                .map_err(|error| Self::error("gateway high-beam Tx unoffer", error))?;
         }
         self.runtime = None;
         self.cursor = 0;
+        self.next_command_discovery = Instant::now();
         Ok(())
     }
 
@@ -276,11 +361,19 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
         match binding.service_name {
             "/body_control_module_rx" => Ok(!self
                 .runtime()?
-                .find_service::<VehicleHighBeamRxInterface>(FindServiceSpecifier::Specific(
+                .find_service::<BodyControlModuleRxInterface>(FindServiceSpecifier::Specific(
                     Self::instance(binding)?,
                 ))
                 .get_available_instances()
                 .map_err(|error| Self::error("gateway body discovery", error))?
+                .is_empty()),
+            "/vehicle_high_beam_rx" => Ok(!self
+                .runtime()?
+                .find_service::<VehicleHighBeamRxInterface>(FindServiceSpecifier::Specific(
+                    Self::instance(binding)?,
+                ))
+                .get_available_instances()
+                .map_err(|error| Self::error("gateway high-beam discovery", error))?
                 .is_empty()),
             "VehicleDynamicsService" => Ok(!self
                 .runtime()?
@@ -290,7 +383,8 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
                 .get_available_instances()
                 .map_err(|error| Self::error("gateway speed discovery", error))?
                 .is_empty()),
-            "/body_control_module_tx" => Ok(self.tx.is_some()),
+            "/body_control_module_tx" => Ok(self.body_tx.is_some()),
+            "/vehicle_high_beam_tx" => Ok(self.high_beam_tx.is_some()),
             _ => Err(MwComProviderError::Transport(
                 "unsupported gateway binding".into(),
             )),
@@ -307,6 +401,7 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
         }
         match binding.service_name {
             "/body_control_module_rx" => self.subscribe_body(binding),
+            "/vehicle_high_beam_rx" => self.subscribe_high_beam(binding),
             "VehicleDynamicsService" if binding.member_name == "speed" => {
                 let consumer = self
                     .runtime()?
@@ -350,6 +445,9 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
     }
 
     async fn recv(&mut self) -> Result<Option<MwComMessage>, MwComProviderError> {
+        if let Some(message) = self.poll_app_command()? {
+            return Ok(Some(message));
+        }
         let count = self.subscriptions.len();
         for _ in 0..count {
             let index = self.cursor % count;
@@ -366,12 +464,13 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
         binding: ScoreBinding<'_>,
         message: MwComMessage,
     ) -> Result<(), MwComProviderError> {
-        if binding.service_name != "/body_control_module_tx" {
-            return Err(MwComProviderError::Transport(
-                "gateway actuation must use the Tx binding".into(),
-            ));
+        match binding.service_name {
+            "/body_control_module_tx" => self.send_body(binding, &message.value),
+            "/vehicle_high_beam_tx" => self.send_high_beam(binding, &message.value),
+            _ => Err(MwComProviderError::Transport(
+                "gateway actuation must use a supported Tx binding".into(),
+            )),
         }
-        self.send_body(binding, &message.value)
     }
 }
 
