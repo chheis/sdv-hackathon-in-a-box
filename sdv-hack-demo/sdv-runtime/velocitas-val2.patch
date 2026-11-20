@@ -24,7 +24,7 @@ diff --git a/requirements-docker.txt b/requirements-docker.txt
 -# Velocitas SDK - try PyPI first, fallback to GitHub if needed
 -velocitas-sdk==0.14.1
 +# Velocitas SDK fork, branch vehicle-app-python-sdk-Kuksa-VAL2
-+velocitas-sdk @ git+https://github.com/nsudhakar479/vehicle-app-python-sdk-fork.git@b9407b064bae1c70bef4e64a200892cff24305a8
++velocitas-sdk @ git+https://github.com/nsudhakar479/vehicle-app-python-sdk-fork.git@bd88bc269b63187921b5a64cbd57324534c32c08
  
  # Additional dependencies found in bundled packages
  aiosignal==1.3.1
