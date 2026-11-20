@@ -88,8 +88,12 @@ bash sdv-hack-demo/tests/databroker-mw-com/upstream_reconstruction_test.sh \
   /path/to/kuksa-proto-git
 ```
 
-This reconstructs sources in a temporary directory, applies both patches twice,
-compares source contents with this demo, and checks that broker core is unchanged.
+This reconstructs sources in a temporary directory and runs the patch script
+twice. It compares the provider, composition, and supporting files against the
+[checked-in checksum manifest](../tests/databroker-mw-com/upstream_reconstruction.sha256),
+and compares the broker core directly against pinned upstream. No workspace
+Databroker checkout is required. Update the manifest when intentionally changing
+the expected reconstructed sources.
 
 Other focused checks:
 

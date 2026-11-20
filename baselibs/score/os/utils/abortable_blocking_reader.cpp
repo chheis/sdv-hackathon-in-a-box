@@ -250,7 +250,13 @@ score::cpp::expected_blank<Error> AbortableBlockingReader::WaitForData(
     const NonBlockingFileDescriptor& file_descriptor) noexcept
 {
     std::array<struct pollfd, 2> fds{};
-    constexpr std::int8_t kNoTimeout{-1};
+
+#ifdef __QNXNTO__
+    // QNX SDP 8.0.4 can miss wakeups for new inotify events, so periodically retry the poll.
+    constexpr std::int32_t kPollTimeoutMs{50};
+#else
+    constexpr std::int32_t kPollTimeoutMs{-1};
+#endif
 
     fds[0].fd = stop_read_file_descriptor_;
     // Suppress "AUTOSAR C++14 M5-0-21" rule findings. This rule declares: "Bitwise operators shall only be
@@ -260,27 +266,56 @@ score::cpp::expected_blank<Error> AbortableBlockingReader::WaitForData(
     fds[0].events = POLLIN;
 
     fds[1].fd = file_descriptor.GetUnderlying();
+#ifdef __QNXNTO__
     // Rationale: see comment above
     // coverity[autosar_cpp14_m5_0_21_violation]
+    fds[1].events = (POLLIN | POLLRDNORM);
+#else
     fds[1].events = POLLIN;
+#endif
 
-    // coverity[autosar_cpp14_m5_0_6_violation]
-    const auto poll_result = syspoll_->poll(fds.data(), fds.size(), kNoTimeout);
-
-    if (!poll_result.has_value())
+    while (true)
     {
-        return score::cpp::make_unexpected(poll_result.error());
-    }
+        // coverity[autosar_cpp14_m5_0_6_violation]
+        const auto poll_result = syspoll_->poll(fds.data(), fds.size(), kPollTimeoutMs);
 
-    // Check return event flag for stop_read_file_descriptor_
-    // Rationale: see comment above
-    // coverity[autosar_cpp14_m5_0_21_violation]
-    if ((static_cast<std::uint32_t>(fds[0].revents) & static_cast<std::uint32_t>(POLLIN)) != 0U)
-    {
-        return score::cpp::make_unexpected(Error::createFromErrno(EINTR));
-    }
+        if (!poll_result.has_value())
+        {
+            return score::cpp::make_unexpected(poll_result.error());
+        }
 
-    return {};
+        // Check return event flag for stop_read_file_descriptor_
+        // Rationale: see comment above
+        // coverity[autosar_cpp14_m5_0_21_violation]
+        if ((static_cast<std::uint32_t>(fds[0].revents) & static_cast<std::uint32_t>(POLLIN)) != 0U)
+        {
+            return score::cpp::make_unexpected(Error::createFromErrno(EINTR));
+        }
+
+        // Rationale: see comment above
+        // coverity[autosar_cpp14_m5_0_21_violation]
+        if ((static_cast<std::uint32_t>(fds[1].revents) & static_cast<std::uint32_t>(POLLIN)) != 0U)
+        {
+            return {};
+        }
+
+#ifdef __QNXNTO__
+        // QNX may report POLLRDNORM instead of POLLIN for readable inotify descriptors.
+        // Rationale: see comment above
+        // coverity[autosar_cpp14_m5_0_21_violation]
+        if ((static_cast<std::uint32_t>(fds[1].revents) & static_cast<std::uint32_t>(POLLRDNORM)) != 0U)
+        {
+            return {};
+        }
+
+        if (poll_result.value() == 0)
+        {
+            continue;
+        }
+#endif
+
+        return {};
+    }
 }
 
 score::cpp::expected<std::pair<NonBlockingFileDescriptor, NonBlockingFileDescriptor>, Error>

@@ -30,6 +30,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <future>
 
@@ -542,7 +543,8 @@ TEST_F(AbortableBlockingReaderTest, ReadReturnsOnceDataBecomesAvailable)
         .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise]() {
                                        unblock_promise.set_value();
                                    }),
-                                   ::testing::Invoke(poll_)));
+                                   ::testing::Invoke(poll_)))
+        .WillRepeatedly(::testing::Invoke(poll_));
 
     AbortableBlockingReader reader{fcntl_mock_, syspoll_mock_, unistd_mock_};
     ASSERT_TRUE(reader.IsValid());
@@ -562,6 +564,43 @@ TEST_F(AbortableBlockingReaderTest, ReadReturnsOnceDataBecomesAvailable)
     internal::UnistdImpl{}.write(writing_file_descriptor_1_, write_buffer.data(), write_buffer.size());
     read_future.wait();
 }
+
+#if defined(__QNXNTO__)
+TEST_F(AbortableBlockingReaderTest, RetriesQnxPollTimeoutAndAcceptsPollRdNorm)
+{
+    RecordProperty("ParentRequirement", "SCR-46010294");
+    RecordProperty("ASIL", "B");
+    RecordProperty("Description", "AbortableBlockingReaderTest Retries QNX Poll Timeout and Accepts POLLRDNORM");
+    RecordProperty("TestingTechnique", "Interface test");
+    RecordProperty("DerivationTechnique", "equivalence-classes");
+
+    constexpr std::array<std::uint8_t, 2> expected_data{'1', '3'};
+    ASSERT_TRUE(internal::UnistdImpl{}
+                    .write(writing_file_descriptor_1_, expected_data.data(), expected_data.size())
+                    .has_value());
+
+    EXPECT_CALL(*syspoll_mock_, poll(::testing::_, 2U, 50))
+        .WillOnce([](struct pollfd* fds, nfds_t, std::int32_t) {
+            EXPECT_EQ(fds[1].events, (POLLIN | POLLRDNORM));
+            fds[0].revents = 0;
+            fds[1].revents = 0;
+            return score::cpp::expected<std::int32_t, Error>{0};
+        })
+        .WillOnce([](struct pollfd* fds, nfds_t, std::int32_t) {
+            fds[0].revents = 0;
+            fds[1].revents = POLLRDNORM;
+            return score::cpp::expected<std::int32_t, Error>{1};
+        });
+
+    AbortableBlockingReader reader{fcntl_mock_, syspoll_mock_, unistd_mock_};
+    ASSERT_TRUE(reader.IsValid());
+    std::array<std::uint8_t, 10> buffer{};
+    const auto result = reader.Read(file_descriptor_1_, buffer);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_THAT(result.value(), ::testing::ElementsAreArray(expected_data));
+}
+#endif
 
 TEST_F(AbortableBlockingReaderTest, ReadReturnsErrorIfSelectFails)
 {
@@ -617,7 +656,8 @@ TEST_F(AbortableBlockingReaderTest, ReadReturnsWhenReaderIsDestructed)
             .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise]() {
                                            unblock_promise.set_value();
                                        }),
-                                       ::testing::Invoke(poll_)));
+                                       ::testing::Invoke(poll_)))
+            .WillRepeatedly(::testing::Invoke(poll_));
 
         AbortableBlockingReader reader{fcntl_mock_, syspoll_mock_, unistd_mock_};
         ASSERT_TRUE(reader.IsValid());
@@ -650,7 +690,8 @@ TEST_F(AbortableBlockingReaderTest, ReadReturnsWhenStopCalled)
         .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise]() {
                                        unblock_promise.set_value();
                                    }),
-                                   ::testing::Invoke(poll_)));
+                                   ::testing::Invoke(poll_)))
+        .WillRepeatedly(::testing::Invoke(poll_));
 
     AbortableBlockingReader reader{fcntl_mock_, syspoll_mock_, unistd_mock_};
     ASSERT_TRUE(reader.IsValid());
@@ -776,15 +817,22 @@ TEST_F(AbortableBlockingReaderTest, ReadReturnsDataForMultipleFileDescriptorsSim
 
     std::promise<void> unblock_promise_1{};
     std::promise<void> unblock_promise_2{};
+    std::atomic_bool unblock_signaled_1{false};
+    std::atomic_bool unblock_signaled_2{false};
     EXPECT_CALL(*syspoll_mock_, poll(::testing::_, ::testing::_, ::testing::_))
-        .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise_1]() {
-                                       unblock_promise_1.set_value();
-                                   }),
-                                   ::testing::Invoke(poll_)))
-        .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise_2]() {
-                                       unblock_promise_2.set_value();
-                                   }),
-                                   ::testing::Invoke(poll_)));
+        .WillRepeatedly(::testing::Invoke(
+            [this, &unblock_promise_1, &unblock_promise_2, &unblock_signaled_1, &unblock_signaled_2](
+                auto fds, auto nfds, auto timeout) {
+                if ((fds[1].fd == file_descriptor_1_.GetUnderlying()) && !unblock_signaled_1.exchange(true))
+                {
+                    unblock_promise_1.set_value();
+                }
+                else if ((fds[1].fd == file_descriptor_2_.GetUnderlying()) && !unblock_signaled_2.exchange(true))
+                {
+                    unblock_promise_2.set_value();
+                }
+                return poll_(fds, nfds, timeout);
+            }));
 
     AbortableBlockingReader reader{fcntl_mock_, syspoll_mock_, unistd_mock_};
     ASSERT_TRUE(reader.IsValid());
@@ -831,15 +879,22 @@ TEST_F(AbortableBlockingReaderTest, WillUnblockReadsForMultipleFileDescriptorsSi
     {
         std::promise<void> unblock_promise_1{};
         std::promise<void> unblock_promise_2{};
+        std::atomic_bool unblock_signaled_1{false};
+        std::atomic_bool unblock_signaled_2{false};
         EXPECT_CALL(*syspoll_mock_, poll(::testing::_, ::testing::_, ::testing::_))
-            .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise_1]() {
-                                           unblock_promise_1.set_value();
-                                       }),
-                                       ::testing::Invoke(poll_)))
-            .WillOnce(::testing::DoAll(::testing::InvokeWithoutArgs([&unblock_promise_2]() {
-                                           unblock_promise_2.set_value();
-                                       }),
-                                       ::testing::Invoke(poll_)));
+            .WillRepeatedly(::testing::Invoke(
+                [this, &unblock_promise_1, &unblock_promise_2, &unblock_signaled_1, &unblock_signaled_2](
+                    auto fds, auto nfds, auto timeout) {
+                    if ((fds[1].fd == file_descriptor_1_.GetUnderlying()) && !unblock_signaled_1.exchange(true))
+                    {
+                        unblock_promise_1.set_value();
+                    }
+                    else if ((fds[1].fd == file_descriptor_2_.GetUnderlying()) && !unblock_signaled_2.exchange(true))
+                    {
+                        unblock_promise_2.set_value();
+                    }
+                    return poll_(fds, nfds, timeout);
+                }));
 
         AbortableBlockingReader reader{fcntl_mock_, syspoll_mock_, unistd_mock_};
         ASSERT_TRUE(reader.IsValid());

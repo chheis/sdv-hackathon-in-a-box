@@ -32,11 +32,14 @@ bash "$fixture/sdv-hack-demo/scripts/apply-patches.sh"
 bash "$fixture/sdv-hack-demo/scripts/apply-patches.sh" > "$temp/repeat.log"
 [[ "$(grep -c '^Already applied:' "$temp/repeat.log")" -eq 2 ]]
 diff -qr "$temp/core/databroker" "$broker/databroker"
-diff -qr "$repo_root/kuksa-databroker/databroker" "$broker/databroker"
-diff -qr "$repo_root/kuksa-databroker/mw_com_provider" "$broker/mw_com_provider"
-diff -qr "$repo_root/kuksa-databroker/databroker-mw-com" "$broker/databroker-mw-com"
-for file in Cargo.toml Cargo.lock databroker-cli/src/cli.rs databroker-proto/build.rs \
-    proto/kuksa/val/{v1,v2}/{types,val}.proto; do
-    cmp "$repo_root/kuksa-databroker/$file" "$broker/$file"
-done
+(
+    cd "$broker"
+    {
+        find databroker-mw-com mw_com_provider ! -type d -print0
+        printf '%s\0' Cargo.toml Cargo.lock databroker-cli/src/cli.rs databroker-proto/build.rs \
+            proto/kuksa/val/{v1,v2}/{types,val}.proto
+    } | LC_ALL=C sort -z | xargs -0 sha256sum
+) > "$temp/reconstructed.sha256"
+diff -u "$repo_root/sdv-hack-demo/tests/databroker-mw-com/upstream_reconstruction.sha256" \
+    "$temp/reconstructed.sha256"
 echo "Pinned upstream reconstruction, exact integration/core contents, and repeated application: PASS"
