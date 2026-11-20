@@ -56,7 +56,7 @@ Hardware : Raspberry pi 5 (64 bit Linux), LED , Switch
 Software Stack : SCORE , SDV Runtime 
 
 ```bash
-git clone -b score-middlware https://github.com/goutham3108/sdv-hackathon-in-a-box-fork-.git
+git clone -b score-middleware-integration https://github.com/chheis/sdv-hackathon-in-a-box.git
 ```
 
 `Note`: Use dedicated Raspberry Pi 5 HW and a trusted WIFI network.
@@ -551,7 +551,7 @@ These 37 mappings accept actuator commands and receive current values.
 
 | VSS path | Type and direction |
 | --- | --- |
-| `Vehicle.Powertrain.Transmission.PerformanceMode` | String; command-only provider mapping |
+| `Vehicle.Powertrain.Transmission.PerformanceMode` | String; bidirectional provider mapping (actuator commands and current-value feedback) |
 | `Vehicle.Speed` | Float in the broker, double on the wire; receive-only provider mapping |
 
 ## Repository Layout
@@ -603,7 +603,7 @@ this **instead of** its normal launch:
 | `Baselibs checkout missing` | Check that `baselibs/score/log_rust/score_log/Cargo.toml` exists in the full workspace. |
 | Another instance / occupied port | Stop the old deployment and identify the process holding the port before restarting. |
 | Vehicle menu exits before displaying options | Check the foreground error and that its instance specifiers match the deployed manifest. |
-| Broker value unavailable | Publish from the remote first, then check bridge, gateway, and provider logs. PerformanceMode has no feedback mapping. |
+| Broker value unavailable | Publish a current value from the remote first, then check the bridge, gateway, and provider logs. For `PerformanceMode`, use option `5` in the remote menu to publish a mode. |
 | SDK speed is zero while CLI speed is correct | Check that the corrected provider configuration and rebuilt runtime image are deployed together. |
 | Missing SDK trunk/mirror/cell-voltage property | Rebuild the runtime with the overlay and recreate the container. |
 | Missing shared libraries | Use the complete archive and its launcher; preserve the packaged runfiles and both serializer libraries. |

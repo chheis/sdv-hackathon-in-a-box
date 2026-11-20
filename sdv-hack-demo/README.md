@@ -45,10 +45,19 @@ ARM64 build, clones the runtime if needed, applies the runtime and model patches
 copies the SDK overlay, and builds/exports the image. The container installs
 the [Velocitas VAL2 fork](https://github.com/nsudhakar479/vehicle-app-python-sdk-fork/tree/vehicle-app-python-sdk-Kuksa-VAL2)
 at the commit pinned in [velocitas-val2.patch](sdv-runtime/velocitas-val2.patch),
-instead of the PyPI SDK. The patch also pins `wrapt==1.17.2`. Already-applied
-patches are skipped. If the VAL2 patch was applied before this pin changed,
-update `wrapt==1.16.0` to `wrapt==1.17.2` in the runtime checkout's
-`requirements-docker.txt` before rebuilding.
+instead of the PyPI SDK. The patch also pins `wrapt==1.17.2`.
+
+If `patch/sdv-runtime/requirements-docker.txt` already has the previous SDK
+pin (`b9407b0`), update only that pin before rebuilding the runtime:
+
+```bash
+sed -i 's|vehicle-app-python-sdk-fork.git@b9407b064bae1c70bef4e64a200892cff24305a8$|vehicle-app-python-sdk-fork.git@bd88bc269b63187921b5a64cbd57324534c32c08|' \
+  patch/sdv-runtime/requirements-docker.txt
+bash sdv-hack-demo/scripts/build-runtime-aarch64.sh
+```
+
+For older patched checkouts, also update `wrapt==1.16.0` to `wrapt==1.17.2`
+in that requirements file before rebuilding.
 
 ## Source Map
 
