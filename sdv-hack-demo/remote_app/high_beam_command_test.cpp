@@ -1,4 +1,9 @@
-#include "high_beam_udp_protocol.h"
+// Copyright (c) 2026 Contributors to the Eclipse Foundation
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "sdv-hack-demo/include/high_beam_udp_protocol.h"
+#include "sdv-hack-demo/remote_app/test_payloads.h"
 
 int main() {
     using high_beam_udp::CommandResult;

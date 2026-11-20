@@ -161,7 +161,7 @@ class VehicleHighBeamRx : public Trait::Base
 
     #define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
         typename Trait::template Event<rx_type> event_name{*this, #event_name};
-    #include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+    #include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/high_beam_event.inc"
     #undef SCORE_BODY_SIGNAL_EVENT
 };
 
@@ -175,12 +175,54 @@ class HighBeamTx : public Trait::Base
         using Trait::Base::Base;
     #define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
         typename Trait::template Event<tx_type> event_name{*this, #event_name};
-    #include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+    #include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/high_beam_event.inc"
     #undef SCORE_BODY_SIGNAL_EVENT
 };
 
 using HighBeamTxProxy = AsProxy<HighBeamTx>;
 using HighBeamTxSkeleton = AsSkeleton<HighBeamTx>;
+
+template <typename Trait>
+class ScoreAppCommandIngress : public Trait::Base
+{
+  public:
+    using Trait::Base::Base;
+
+    typename Trait::template Event<HighBeamCommand> high_beam_command{*this, "high_beam_command"};
+};
+
+using ScoreAppCommandIngressProxy = AsProxy<ScoreAppCommandIngress>;
+using ScoreAppCommandIngressSkeleton = AsSkeleton<ScoreAppCommandIngress>;
+
+template <typename Trait>
+class BodyControlModuleRx : public Trait::Base
+{
+  public:
+    using Trait::Base::Base;
+
+#define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+    typename Trait::template Event<rx_type> event_name{*this, #event_name};
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#undef SCORE_BODY_SIGNAL_EVENT
+};
+
+using BodyControlModuleRxProxy = AsProxy<BodyControlModuleRx>;
+using BodyControlModuleRxSkeleton = AsSkeleton<BodyControlModuleRx>;
+
+template <typename Trait>
+class BodyControlModuleTx : public Trait::Base
+{
+  public:
+    using Trait::Base::Base;
+
+#define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+    typename Trait::template Event<tx_type> event_name{*this, #event_name};
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#undef SCORE_BODY_SIGNAL_EVENT
+};
+
+using BodyControlModuleTxProxy = AsProxy<BodyControlModuleTx>;
+using BodyControlModuleTxSkeleton = AsSkeleton<BodyControlModuleTx>;
 
 template <typename Trait>
 class BodyControlModuleService : public Trait::Base

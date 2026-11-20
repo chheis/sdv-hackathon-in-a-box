@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Contributors to the Eclipse Foundation
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "sdv-hack-demo/vehicle_app/signal_test_values.h"
 
 #include <chrono>
@@ -41,19 +45,26 @@ class SignalTestApplication {
         if (skeleton_.has_value()) {
             skeleton_->StopOfferService();
         }
+        if (high_beam_skeleton_.has_value()) {
+            high_beam_skeleton_->StopOfferService();
+        }
     }
 
     int Run() {
         score::mw::com::runtime::InitializeRuntime(
             score::mw::com::runtime::RuntimeConfiguration{options_.configuration});
-        if (!ConnectReceiver() || !OfferSender()) {
+        if (!ConnectReceiver("/body_control_module/network_rx", proxy_) ||
+            !ConnectReceiver("/vehicle_high_beam/network_rx", high_beam_proxy_) || !OfferSender()) {
             return EXIT_FAILURE;
         }
         std::size_t passed = 0;
         for (const auto& signal : signals_) {
             bool success = true;
-            auto tx_events = skeleton_->GetEvents();
-            auto rx_events = proxy_->GetEvents();
+            const bool high_beam = signal.event_name == "high_beam_state";
+            auto& tx_skeleton = high_beam ? high_beam_skeleton_ : skeleton_;
+            auto& rx_proxy = high_beam ? high_beam_proxy_ : proxy_;
+            auto tx_events = tx_skeleton->GetEvents();
+            auto rx_events = rx_proxy->GetEvents();
             const auto tx = tx_events.find(signal.event_name);
             const auto rx = rx_events.find(signal.event_name);
             if (tx == tx_events.cend() || rx == rx_events.cend()) {
@@ -88,9 +99,9 @@ class SignalTestApplication {
     }
 
   private:
-    bool ConnectReceiver() {
-        const auto instance = score::mw::com::InstanceSpecifier::Create(
-            std::string{"/body_control_module/network_rx"});
+    bool ConnectReceiver(const std::string& specifier,
+                         std::optional<score::mw::com::GenericProxy>& proxy) {
+        const auto instance = score::mw::com::InstanceSpecifier::Create(specifier);
         if (!instance.has_value()) {
             return false;
         }
@@ -100,7 +111,7 @@ class SignalTestApplication {
             if (handles.has_value() && !handles.value().empty()) {
                 auto result = score::mw::com::GenericProxy::Create(handles.value().front());
                 if (result.has_value()) {
-                    proxy_.emplace(std::move(result).value());
+                    proxy.emplace(std::move(result).value());
                     return true;
                 }
             }
@@ -111,16 +122,24 @@ class SignalTestApplication {
     }
 
     bool OfferSender() {
-        std::vector<score::mw::com::EventInfo> events;
+        std::vector<score::mw::com::EventInfo> body_events;
+        std::vector<score::mw::com::EventInfo> high_beam_events;
         for (const auto& signal : signals_) {
             const std::size_t capacity = signal.max_payload_size;
             const score::mw::com::DataTypeMetaInfo metadata{
                 score::someip_gateway::serializer::get_size_of_pre_serialized_data(capacity),
                 alignof(RawSample)};
+            auto& events = signal.event_name == "high_beam_state" ? high_beam_events : body_events;
             events.push_back({signal.event_name, metadata});
         }
-        const auto instance = score::mw::com::InstanceSpecifier::Create(
-            std::string{"/body_control_module/local_tx"});
+        return OfferSender("/body_control_module/local_tx", body_events, skeleton_) &&
+               OfferSender("/vehicle_high_beam/local_tx", high_beam_events, high_beam_skeleton_);
+    }
+
+    bool OfferSender(const std::string& specifier,
+                     const std::vector<score::mw::com::EventInfo>& events,
+                     std::optional<score::mw::com::GenericSkeleton>& skeleton) {
+        const auto instance = score::mw::com::InstanceSpecifier::Create(specifier);
         if (!instance.has_value()) {
             return false;
         }
@@ -128,12 +147,13 @@ class SignalTestApplication {
         parameters.events = events;
         auto result = score::mw::com::GenericSkeleton::Create(instance.value(), parameters);
         if (!result.has_value()) {
-            std::cerr << "Cannot create Tx service; stop KUKSA and the legacy vehicle publisher.\n";
+            std::cerr << "Cannot create Tx service at " << specifier
+                      << "; stop KUKSA and the legacy vehicle publisher.\n";
             return false;
         }
-        skeleton_.emplace(std::move(result).value());
-        if (!skeleton_->OfferService().has_value()) {
-            std::cerr << "Cannot offer body-signal Tx service.\n";
+        skeleton.emplace(std::move(result).value());
+        if (!skeleton->OfferService().has_value()) {
+            std::cerr << "Cannot offer Tx service at " << specifier << ".\n";
             return false;
         }
         return true;
@@ -204,7 +224,9 @@ class SignalTestApplication {
     Options options_;
     std::vector<Signal> signals_;
     std::optional<score::mw::com::GenericSkeleton> skeleton_;
+    std::optional<score::mw::com::GenericSkeleton> high_beam_skeleton_;
     std::optional<score::mw::com::GenericProxy> proxy_;
+    std::optional<score::mw::com::GenericProxy> high_beam_proxy_;
     std::vector<score::mw::com::GenericProxyEvent*> subscribed_events_;
 };
 

@@ -1,0 +1,32 @@
+diff --git a/Dockerfile b/Dockerfile
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -62,7 +62,14 @@ RUN mkdir -p /home/dev/python-packages
+ 
+ # Install all Python packages to the target directory
+ ENV PYTHONPATH="/home/dev/python-packages"
+-RUN pip3 install --no-cache-dir --target /home/dev/python-packages -r requirements-docker.txt
++RUN --mount=type=cache,id=sdv-runtime-pip-${TARGETARCH},target=/root/.cache/pip,sharing=locked \
++    for attempt in 1 2 3; do \
++        if pip3 install --timeout 120 --retries 5 --target /home/dev/python-packages -r requirements-docker.txt; then \
++            exit 0; \
++        fi; \
++        echo "pip dependency install failed (attempt ${attempt}/3)" >&2; \
++    done; \
++    exit 1
+ 
+ # Copy VSS specification from submodule and overlay files
+ COPY vehicle_signal_specification ./vehicle_signal_specification
+@@ -122,8 +129,10 @@ RUN sed -i 's/\r$//' /start_services.sh
+ ENV PYTHONPATH="/home/dev/python-packages"
+ 
+ # Re-install grpcio to ensure it's built for the target platform
+-RUN pip3 uninstall -y grpcio && pip3 install grpcio==1.64.1
+-RUN pip3 install requests
++RUN --mount=type=cache,id=sdv-runtime-pip-${TARGETARCH},target=/root/.cache/pip,sharing=locked \
++    pip3 uninstall -y grpcio && pip3 install --timeout 120 --retries 5 grpcio==1.64.1
++RUN --mount=type=cache,id=sdv-runtime-pip-${TARGETARCH},target=/root/.cache/pip,sharing=locked \
++    pip3 install --timeout 120 --retries 5 requests
+ 
+ # Create symlinks and move files as in original
+ RUN ln -s /home/dev/python-packages/velocitas_sdk /home/dev/python-packages/sdv \

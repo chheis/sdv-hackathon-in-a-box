@@ -1,3 +1,9 @@
+<!--
+Copyright (c) 2026 Contributors to the Eclipse Foundation
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # score_app: Vehicle High-Beam mw::com Showcase
 
 ## All-Signal Test App
@@ -30,28 +36,55 @@ cd ~/sdv-demo
 
 ## Original Vehicle App
 
-This application publishes and consumes only the VSS signal
-`Vehicle.Body.Lights.Beam.High.IsOn` through the SOME/IP gateway. Service,
-instance, and member identifiers are transport configuration owned by `mw::com`
-and the gateway; they are not part of the application signal interface.
+The vehicle menu publishes `high_beam_command` to its private mw::com shared
+memory ingress. The mw_com_provider consumes that event and writes
+`Vehicle.Body.Lights.Beam.High.IsOn` as the Databroker actuator target; the
+provider's existing target subscriber then sends it through the provider-owned
+S-CORE Tx service. `score_app` does not connect to Databroker and has no KUKSA
+protobuf, gRPC, or CLI dependency.
 
-The wire payload is exactly one byte: `0x00` for `false` and `0x01` for `true`.
-The application rejects every other payload length or value.
+The app and provider use `score_app_mw_com_config.json`, which the packaging
+script generates by extending the upstream gateway manifest with the private
+ingress. `gatewayd` continues to use the unmodified `mw_com_config.json`, so it
+does not offer or route the app-only service.
+
+For a direct local launch, generate the app/provider manifest and pass it to
+`score_app`:
+
+```bash
+python3 sdv-hack-demo/tools/extend_mw_com_config.py \
+  --base inc_someip_gateway/score/gatewayd/etc/mw_com_config.json \
+  --output /tmp/score_app_mw_com_config.json
+```
+
+Pass `/tmp/score_app_mw_com_config.json` to `score_app` with
+`--configuration` when launching the built binary directly.
+
+The app subscribes to feedback through the S-CORE Rx service. Service, instance,
+and member identifiers are transport configuration owned by `mw::com` and the
+gateway; they are not part of the application signal interface.
+
+The ingress payload is exactly one byte: `0x00` for `false` and `0x01` for
+`true`. The provider rejects every other payload length or value.
 
 The two directions use separate services so a received network state is never
 republished back to the network:
 
 | Direction | Service | Event | Instance |
 | --- | --- | --- | --- |
-| Vehicle app to network | `body_control_module_tx` (`0x4300`) | `0x8430` | `0x1000` |
-| Network to Vehicle app | `body_control_module_rx` (`0x4300`) | `0x8431` | `0x1001` |
+| Vehicle app command ingress | `score_app_command_ingress` | `high_beam_command` | `/score_app_command/menu_tx` |
+| Provider command to network | `vehicle_high_beam_tx` (`0x4300`) | `0x8430` | `0x1000` |
+| Network to Vehicle app | `vehicle_high_beam_rx` (`0x4300`) | `0x8431` | `0x1001` |
 
-`gatewayd` consumes the Tx service through a `mw::com::GenericProxy` and exposes
-the Rx service through a `mw::com::GenericSkeleton`. `someipd` owns the local
-vSomeIP network stack.
+The mw_com_provider owns the high-beam Tx service and forwards Databroker
+actuator targets to it. KUKSA clients can continue to issue actuator requests
+through Databroker; `score_app` uses the separate private ingress. Other body
+signals remain on the `/body_control_module` services.
+`gatewayd` exposes the Rx service through a `mw::com::GenericSkeleton`.
+`someipd` owns the local vSomeIP network stack.
 
 The shared-memory binding is resolved as `service / instance / member`:
-`/body_control_module_tx` or `/body_control_module_rx` / their configured instance
+`/vehicle_high_beam_tx` or `/vehicle_high_beam_rx` / their configured instance
 specifier / `high_beam_state`.
 
 ## Build
@@ -68,9 +101,10 @@ It builds the gateway components, creates both deployment archives, and starts
 the vehicle and remote applications with the correct library paths and IP
 configuration.
 
-The Vehicle app publishes either boolean value. The bridge forwards it to the
-remote sensor over UDP, and the sensor sends its latest value back through the
-bridge, SOME/IP, and mw::com.
+The vehicle menu publishes either boolean value through its private mw::com
+ingress. The provider records it as the Databroker actuator target and forwards
+it over mw::com; the bridge sends it to the remote sensor over UDP.
+The sensor sends its latest value back through the bridge, SOME/IP, and mw::com.
 
 ## Local host testing (no RPi required)
 
@@ -93,7 +127,9 @@ source sdv-hack-demo/deploy/network.env.local
 2. Build host binaries (x86_64):
 
 ```bash
-bazel build --host_copt=-std=gnu11 //sdv-hack-demo/...
+cd inc_someip_gateway
+bazel build --config=sdv-demo --package_path="%workspace%:.." \
+  //sdv-hack-demo/...
 ```
 
 3. Run components in separate terminals (or background jobs):
@@ -101,19 +137,19 @@ bazel build --host_copt=-std=gnu11 //sdv-hack-demo/...
 Terminal A — bridge (vehicle-side):
 
 ```bash
-bazel run //sdv-hack-demo/bridge:udp_bridge
+bazel run --package_path="%workspace%:.." //sdv-hack-demo/bridge:udp_bridge
 ```
 
 Terminal B — remote sensor (simulated remote):
 
 ```bash
-bazel run //sdv-hack-demo/remote_app:remote_app
+bazel run --package_path="%workspace%:.." //sdv-hack-demo/remote_app:remote_app
 ```
 
 Terminal C — vehicle app (foreground):
 
 ```bash
-bazel run //sdv-hack-demo/vehicle_app:score_app
+bazel run --package_path="%workspace%:.." //sdv-hack-demo/vehicle_app:score_app
 ```
 
 If `bazel run` target names differ, locate the binaries under `bazel-bin/`

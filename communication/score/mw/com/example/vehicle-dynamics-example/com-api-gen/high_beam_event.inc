@@ -1,0 +1,1 @@
+SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, high_beam_state)

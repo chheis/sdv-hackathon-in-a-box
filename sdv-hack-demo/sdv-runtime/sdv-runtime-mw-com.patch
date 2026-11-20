@@ -61,10 +61,10 @@ index 19aa255195f95012238feed11597f9a367a0acc9..613c81fbbdf922615e946dbdc0f5ff2a
  # Re-install grpcio to ensure it's built for the target platform
  RUN pip3 uninstall -y grpcio && pip3 install grpcio==1.64.1
 diff --git a/README.md b/README.md
-index b0693f675e1a4c858bd605e2ec66092a8d4cc7a2..21a09f91bf18004bbd7125b4b9f83d107fa174cd 100644
+index b0693f675e1a4c858bd605e2ec66092a8d4cc7a2..28e16e5bf19c742f2fac41992f0981a409d65ae2 100644
 --- a/README.md
 +++ b/README.md
-@@ -31,6 +31,57 @@ docker run -d --restart=always -e RUNTIME_PREFIX="Kit-" -e RUNTIME_NAME="MyRunti
+@@ -31,6 +31,61 @@ docker run -d --restart=always -e RUNTIME_PREFIX="Kit-" -e RUNTIME_NAME="MyRunti
  
  Video instruction: [https://youtu.be/HQrsGY7XLU4](https://youtu.be/HQrsGY7XLU4)
  
@@ -98,20 +98,24 @@ index b0693f675e1a4c858bd605e2ec66092a8d4cc7a2..21a09f91bf18004bbd7125b4b9f83d10
 +
 +### Playground signal writes without mocks
 +
-+Widget `write_signals_value` requests publish broker **current values** for all
-+registered writable entry types, including actuators. With `MOCK_SIGNAL=""`,
-+Signal Watch `set_mock_signals` requests also publish current values directly;
-+neither subscribing nor setting values starts a mock provider. CLI `get` and
-+playground subscriptions read those same current values. Configured real vehicle
-+feedback can subsequently replace them.
++Widget `write_signals_value` requests use broker metadata to select the write:
++actuators use **target values**, while sensors and attributes use **current
++values**. With `MOCK_SIGNAL=""`, Signal Watch `set_mock_signals` and reset
++requests use the same routing; neither subscribing nor setting values starts a
++mock provider. Metadata for the entire batch is checked before any write.
++Missing or unsupported entry metadata, invalid values, and denied writes return
++a `Failed` reply with an `error`, rather than a successful acknowledgement.
 +
-+The external mw::com broker forwards published current values for configured
-+command-capable mappings through middleware. Sensor-only entries are not sent as
-+commands. Unknown paths, invalid values, and denied writes return a `Failed`
-+reply with an `error`, rather than a successful acknowledgement.
++The external mw::com provider forwards actuator targets through middleware and
++writes received feedback as current values using standard broker APIs. Current
++publishes are never commands. CLI `get` and Playground subscriptions continue to
++read current values: an actuator command does not change those values until
++feedback arrives. Command-only mappings without feedback may have no current
++value. Mixed batches use separate target and current write calls, not an atomic
++transaction; a failure is reported without retrying as another write type.
 +
 +When `MOCK_SIGNAL` names a file, `set_mock_signals` retains its mock-configuration
-+behavior. Native CLI `actuate` remains a separate actuator-target operation.
++behavior. Native CLI `actuate` also remains supported.
 +
 +Run the write-path regression tests in an environment with the runtime dependencies:
 +
@@ -123,12 +127,15 @@ index b0693f675e1a4c858bd605e2ec66092a8d4cc7a2..21a09f91bf18004bbd7125b4b9f83d10
  `$RUNTIME_NAME`: this is the ID to add your runtime to playground.digital.auto.
  `$RUNTIME_PREFIX`: (Optional) Custom prefix for the runtime ID. Default is "Runtime-". Set to empty string for no prefix.
 diff --git a/kuksa-syncer/syncer.py b/kuksa-syncer/syncer.py
-index 56e3e42549c19d4adb1def63d2138bf43a98ed0a..62733943f50e83f3b8cfe87b7c82448f3fdabb2b 100644
+index 56e3e42549c19d4adb1def63d2138bf43a98ed0a..6881bff6aa902e32d2a124ea52bb4f92e8d427b7 100644
 --- a/kuksa-syncer/syncer.py
 +++ b/kuksa-syncer/syncer.py
-@@ -12,8 +12,7 @@ from kuksa_client.grpc.aio import VSSClient
+@@ -10,10 +10,9 @@ import signal
+ import subprocess
+ from kuksa_client.grpc.aio import VSSClient
  from kuksa_client.grpc import VSSClient as KClient
- from kuksa_client.grpc import Datapoint
+-from kuksa_client.grpc import Datapoint
++from kuksa_client.grpc import Datapoint, EntryType
  from kuksa_client.grpc import VSSClientError
 -from kuksa_client.grpc import MetadataField
 -from kuksa_client.grpc import EntryType
@@ -238,7 +245,7 @@ index 56e3e42549c19d4adb1def63d2138bf43a98ed0a..62733943f50e83f3b8cfe87b7c82448f
          return 0
      hasNew = False
      with KClient(BORKER_IP, BROKER_PORT) as kclient:
-@@ -975,32 +966,31 @@ def modifyMockSignal(input_str):
+@@ -975,32 +966,45 @@ def modifyMockSignal(input_str):
          file.truncate()
          return 0
  
@@ -289,9 +296,23 @@ index 56e3e42549c19d4adb1def63d2138bf43a98ed0a..62733943f50e83f3b8cfe87b7c82448f
 -                    print("The signal path provided was not actuator or sensor", flush=True)
 -            except Exception as e:
 -                print("Error occured when writing signal values: " + str(e),flush=True)
-+        kclient.set_current_values({
-+            path: Datapoint(value) for path, value in signal_values.items()
-+        })
++        metadata = kclient.get_metadata(list(signal_values))
++        target_values = {}
++        current_values = {}
++        for path, value in signal_values.items():
++            entry = metadata.get(path)
++            if entry is None:
++                raise ValueError(f"No metadata returned for {path}")
++            if entry.entry_type == EntryType.ACTUATOR:
++                target_values[path] = Datapoint(value)
++            elif entry.entry_type in (EntryType.SENSOR, EntryType.ATTRIBUTE):
++                current_values[path] = Datapoint(value)
++            else:
++                raise ValueError(f"Unsupported entry type for {path}: {entry.entry_type}")
++        if target_values:
++            kclient.set_target_values(target_values)
++        if current_values:
++            kclient.set_current_values(current_values)
  
  async def start_socketio(SERVER):
      print("Connecting to Kit Server: " + SERVER, flush=True)
@@ -2561,10 +2582,10 @@ index 8c7e9656265ad41efe1bdc06bc3ea5be5de0044f..a5dd9ddb9dad6ef5b048725316d43e73
  wait "$KIT_MANAGER_PID" 2>/dev/null
 diff --git a/test/test_signal_writes.py b/test/test_signal_writes.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d8376b09bc90
+index 0000000000000000000000000000000000000000..45ec75a52e5457daef04794c5e6425b14b0bdd42
 --- /dev/null
 +++ b/test/test_signal_writes.py
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,245 @@
 +import asyncio
 +import os
 +from pathlib import Path
@@ -2587,6 +2608,9 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +        self.client_factory = patch.object(syncer, "KClient")
 +        self.client = self.client_factory.start().return_value.__enter__.return_value
 +        self.addCleanup(self.client_factory.stop)
++        self.client.get_metadata.side_effect = lambda paths: {
++            path: MagicMock(entry_type=EntryType.ACTUATOR) for path in paths
++        }
 +        emit_patch = patch.object(syncer.sio, "emit", new_callable=AsyncMock)
 +        self.emit = emit_patch.start()
 +        self.addCleanup(emit_patch.stop)
@@ -2600,18 +2624,24 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +        }))
 +        return self.emit.call_args.args[1]
 +
-+    def test_widget_publishes_current_for_every_entry_type(self):
++    def test_widget_routes_writes_by_entry_type(self):
 +        for entry_type in (EntryType.ACTUATOR, EntryType.SENSOR, EntryType.ATTRIBUTE):
 +            with self.subTest(entry_type=entry_type):
 +                self.client.reset_mock()
++                self.client.get_metadata.side_effect = None
 +                self.client.get_metadata.return_value = {
 +                    "Vehicle.Test": MagicMock(entry_type=entry_type),
 +                }
 +                syncer.writeSignalsValue({"Vehicle.Test": True})
-+                self.client.set_current_values.assert_called_once()
-+                values = self.client.set_current_values.call_args.args[0]
++                if entry_type == EntryType.ACTUATOR:
++                    self.client.set_target_values.assert_called_once()
++                    self.client.set_current_values.assert_not_called()
++                    values = self.client.set_target_values.call_args.args[0]
++                else:
++                    self.client.set_current_values.assert_called_once()
++                    self.client.set_target_values.assert_not_called()
++                    values = self.client.set_current_values.call_args.args[0]
 +                self.assertEqual(values["Vehicle.Test"].value, True)
-+                self.client.set_target_values.assert_not_called()
 +
 +    def test_batch_keeps_client_supported_value_types(self):
 +        expected = {
@@ -2619,16 +2649,33 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +            "Vehicle.Speed": 12.5, "Vehicle.Count": 2,
 +            "Vehicle.Cells": [8.1, 8.2],
 +        }
++        self.client.get_metadata.side_effect = None
++        self.client.get_metadata.return_value = {
++            path: MagicMock(entry_type=entry_type) for path, entry_type in (
++                ("Vehicle.Mode", EntryType.ACTUATOR),
++                ("Vehicle.Light", EntryType.ACTUATOR),
++                ("Vehicle.Speed", EntryType.SENSOR),
++                ("Vehicle.Count", EntryType.ATTRIBUTE),
++                ("Vehicle.Cells", EntryType.SENSOR),
++            )
++        }
 +        syncer.writeSignalsValue(expected)
++        self.client.get_metadata.assert_called_once_with(list(expected))
++        self.client.set_target_values.assert_called_once()
 +        self.client.set_current_values.assert_called_once()
-+        actual = self.client.set_current_values.call_args.args[0]
++        targets = self.client.set_target_values.call_args.args[0]
++        currents = self.client.set_current_values.call_args.args[0]
++        self.assertEqual(set(targets), {"Vehicle.Mode", "Vehicle.Light"})
++        self.assertEqual(set(currents), {"Vehicle.Speed", "Vehicle.Count", "Vehicle.Cells"})
++        actual = {**targets, **currents}
 +        self.assertEqual({key: value.value for key, value in actual.items()}, expected)
 +        self.assertTrue(all(isinstance(value, Datapoint) for value in actual.values()))
 +
 +    def test_widget_acknowledges_success(self):
 +        reply = self.command("write_signals_value", {"Vehicle.Mode": "ECONOMY"})
 +        self.assertEqual(reply["result"], "Successful")
-+        self.client.set_current_values.assert_called_once()
++        self.client.set_target_values.assert_called_once()
++        self.client.set_current_values.assert_not_called()
 +
 +    def test_signal_watch_publishes_without_mock_files_or_processes(self):
 +        with patch.object(syncer, "modifyMockSignal") as modify, \
@@ -2637,9 +2684,10 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +            reply = self.command("set_mock_signals", data)
 +            self.assertEqual(reply["result"], "Successful")
 +            self.assertEqual(reply["data"], data)
-+            self.client.set_current_values.assert_called_once()
++            self.client.set_target_values.assert_called_once()
++            self.client.set_current_values.assert_not_called()
 +            self.assertEqual(
-+                self.client.set_current_values.call_args.args[0]["Vehicle.Mode"].value,
++                self.client.set_target_values.call_args.args[0]["Vehicle.Mode"].value,
 +                "ECONOMY",
 +            )
 +            modify.assert_not_called()
@@ -2657,6 +2705,7 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +            listing.assert_called_once()
 +            restart.assert_called_once()
 +            self.client.set_current_values.assert_not_called()
++            self.client.set_target_values.assert_not_called()
 +
 +    def test_disabled_mock_subscription_does_not_open_files(self):
 +        with patch("builtins.open", side_effect=AssertionError("mock file accessed")), \
@@ -2687,13 +2736,56 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +            ("set_mock_signals", [{"signal": "Vehicle.Missing", "value": True}]),
 +        ):
 +            with self.subTest(command=command):
-+                self.client.set_current_values.side_effect = VSSClientError(
++                self.client.set_target_values.side_effect = VSSClientError(
 +                    {"code": 404, "reason": "not_found", "message": "Unknown signal"},
 +                    [],
 +                )
 +                reply = self.command(command, data)
 +                self.assertEqual(reply["result"], "Failed")
 +                self.assertIn("Unknown signal", reply["error"])
++                self.client.set_current_values.assert_not_called()
++
++    def test_missing_or_unspecified_metadata_rejects_batch_without_writes(self):
++        for invalid_metadata in (None, MagicMock(entry_type=EntryType.UNSPECIFIED)):
++            with self.subTest(metadata=invalid_metadata):
++                self.client.get_metadata.side_effect = None
++                self.client.get_metadata.return_value = {
++                    "Vehicle.Speed": MagicMock(entry_type=EntryType.SENSOR),
++                    "Vehicle.Unknown": invalid_metadata,
++                }
++                reply = self.command(
++                    "write_signals_value", {"Vehicle.Speed": 10.0, "Vehicle.Unknown": True},
++                )
++                self.assertEqual(reply["result"], "Failed")
++                self.assertIn("Vehicle.Unknown", reply["error"])
++                self.client.set_current_values.assert_not_called()
++                self.client.set_target_values.assert_not_called()
++
++        self.client.get_metadata.return_value = {}
++        reply = self.command("write_signals_value", {"Vehicle.Missing": True})
++        self.assertEqual(reply["result"], "Failed")
++        self.assertIn("Vehicle.Missing", reply["error"])
++        self.client.set_current_values.assert_not_called()
++        self.client.set_target_values.assert_not_called()
++
++    def test_sensor_write_and_metadata_errors_are_reported(self):
++        self.client.get_metadata.side_effect = None
++        self.client.get_metadata.return_value = {
++            "Vehicle.Speed": MagicMock(entry_type=EntryType.SENSOR),
++        }
++        self.client.set_current_values.side_effect = RpcError("Sensor write denied")
++        reply = self.command("write_signals_value", {"Vehicle.Speed": 10.0})
++        self.assertEqual(reply["result"], "Failed")
++        self.assertIn("Sensor write denied", reply["error"])
++        self.client.set_target_values.assert_not_called()
++
++        self.client.reset_mock()
++        self.client.get_metadata.side_effect = RpcError("Metadata denied")
++        reply = self.command("write_signals_value", {"Vehicle.Speed": 10.0})
++        self.assertEqual(reply["result"], "Failed")
++        self.assertIn("Metadata denied", reply["error"])
++        self.client.set_current_values.assert_not_called()
++        self.client.set_target_values.assert_not_called()
 +
 +    def test_invalid_payloads_are_reported_without_writes(self):
 +        for command, data in (
@@ -2708,14 +2800,16 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +                    reply = self.command(command, data)
 +                self.assertEqual(reply["result"], "Failed")
 +                self.client.set_current_values.assert_not_called()
++                self.client.set_target_values.assert_not_called()
 +
 +    def test_connection_and_type_errors_are_not_successful(self):
 +        for error in (RpcError("Unavailable"), ValueError("Invalid boolean")):
 +            with self.subTest(error=error):
-+                self.client.set_current_values.side_effect = error
++                self.client.set_target_values.side_effect = error
 +                reply = self.command("write_signals_value", {"Vehicle.Light": "bad"})
 +                self.assertEqual(reply["result"], "Failed")
 +                self.assertIn(str(error), reply["error"])
++                self.client.set_current_values.assert_not_called()
 +
 +    def test_reset_uses_signal_objects_not_a_string(self):
 +        content = '[{"signal": "Vehicle.Mode", "value": "NORMAL"}]'
@@ -2723,7 +2817,7 @@ index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d837
 +            reply = self.command("reset_signals_value", {})
 +        self.assertEqual(reply["result"], "Successful")
 +        self.assertEqual(
-+            self.client.set_current_values.call_args.args[0]["Vehicle.Mode"].value,
++            self.client.set_target_values.call_args.args[0]["Vehicle.Mode"].value,
 +            "NORMAL",
 +        )
 +

@@ -1,0 +1,467 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index e52da0592d105e1d1250be52a6c0ea4773f89337..67d8fc82efabaad4d60145cec3dbbe03e75769ae 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -11,6 +11,13 @@ dependencies = [
+  "memchr",
+ ]
+ 
++[[package]]
++name = "allocator"
++version = "0.0.1"
++dependencies = [
++ "score_log",
++]
++
+ [[package]]
+ name = "allocator-api2"
+ version = "0.2.21"
+@@ -337,6 +344,22 @@ dependencies = [
+  "syn 3.0.4",
+ ]
+ 
++[[package]]
++name = "bridge_ffi_lola"
++version = "0.1.0"
++dependencies = [
++ "bridge_ffi_rs",
++ "sample_ptr_rs",
++ "score_log",
++]
++
++[[package]]
++name = "bridge_ffi_rs"
++version = "0.1.0"
++dependencies = [
++ "sample_ptr_rs",
++]
++
+ [[package]]
+ name = "bstr"
+ version = "1.13.1"
+@@ -466,6 +489,26 @@ version = "1.0.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
+ 
++[[package]]
++name = "com-api-runtime-lola"
++version = "0.1.0"
++dependencies = [
++ "bridge_ffi_lola",
++ "bridge_ffi_rs",
++ "futures",
++ "sample_allocatee_ptr_rs",
++ "sample_ptr_rs",
++ "score_com_concept",
++ "score_log",
++]
++
++[[package]]
++name = "common_rs"
++version = "0.1.0"
++dependencies = [
++ "libc",
++]
++
+ [[package]]
+ name = "console"
+ version = "0.15.11"
+@@ -491,6 +534,14 @@ version = "0.1.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
+ 
++[[package]]
++name = "containers"
++version = "0.0.1"
++dependencies = [
++ "allocator",
++ "score_log",
++]
++
+ [[package]]
+ name = "core-foundation-sys"
+ version = "0.8.7"
+@@ -778,6 +829,16 @@ dependencies = [
+  "tonic-prost",
+ ]
+ 
++[[package]]
++name = "databroker-mw-com"
++version = "0.1.0"
++dependencies = [
++ "databroker",
++ "mw_com_provider",
++ "tokio",
++ "tracing",
++]
++
+ [[package]]
+ name = "databroker-proto"
+ version = "0.7.2-dev.0"
+@@ -2994,6 +3055,22 @@ version = "0.10.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
+ 
++[[package]]
++name = "mw_com_provider"
++version = "0.1.0"
++dependencies = [
++ "async-trait",
++ "databroker",
++ "databroker-proto",
++ "score_com",
++ "serde",
++ "serde_json",
++ "thiserror 1.0.69",
++ "tokio",
++ "tokio-stream",
++ "tracing",
++]
++
+ [[package]]
+ name = "nix"
+ version = "0.26.4"
+@@ -3232,6 +3309,12 @@ dependencies = [
+  "windows-link",
+ ]
+ 
++[[package]]
++name = "pastey"
++version = "0.2.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
++
+ [[package]]
+ name = "peg"
+ version = "0.6.3"
+@@ -3812,12 +3895,77 @@ dependencies = [
+  "winapi-util",
+ ]
+ 
++[[package]]
++name = "sample_allocatee_ptr_rs"
++version = "0.1.0"
++dependencies = [
++ "common_rs",
++]
++
++[[package]]
++name = "sample_ptr_rs"
++version = "0.1.0"
++dependencies = [
++ "common_rs",
++ "libc",
++]
++
+ [[package]]
+ name = "scopeguard"
+ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+ 
++[[package]]
++name = "score_com"
++version = "0.1.0"
++dependencies = [
++ "com-api-runtime-lola",
++ "score_com_concept",
++]
++
++[[package]]
++name = "score_com_concept"
++version = "0.1.0"
++dependencies = [
++ "containers",
++ "futures",
++ "pastey",
++ "score_com_macros",
++ "score_log",
++ "thiserror 2.0.20",
++]
++
++[[package]]
++name = "score_com_macros"
++version = "0.1.0"
++dependencies = [
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "score_log"
++version = "0.0.1"
++dependencies = [
++ "score_log_fmt",
++ "score_log_fmt_macro",
++]
++
++[[package]]
++name = "score_log_fmt"
++version = "0.0.1"
++
++[[package]]
++name = "score_log_fmt_macro"
++version = "0.0.1"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "score_log_fmt",
++ "syn 2.0.119",
++]
++
+ [[package]]
+ name = "sd-notify"
+ version = "0.4.5"
+diff --git a/Cargo.toml b/Cargo.toml
+index ae6ca9589a7bf2648d3c7fa7c11b724cb6ac011d..1fe1421ca788054f5a3da9bc67708c488c12dda2 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -19,10 +19,14 @@ members = [
+     "databroker",
+     "databroker-proto",
+     "databroker-cli",
++    "databroker-mw-com",
++    "mw_com_provider",
+ ]
+ 
+ exclude = [
+-   "lib/*"
++   "lib/*",
++   "mw_com_provider/score_com_cargo/*",
++   "mw_com_provider/xtask",
+ ]
+ 
+ [workspace.dependencies]
+diff --git a/databroker-cli/src/cli.rs b/databroker-cli/src/cli.rs
+index 82aa496f8ba616a4acab92987fd3f1c7e96c94d3..bf2fe16d96af1c1a94b21e6660a414599f2dbfc9 100644
+--- a/databroker-cli/src/cli.rs
++++ b/databroker-cli/src/cli.rs
+@@ -117,8 +117,6 @@ pub enum Commands {
+ pub enum Protocol {
+     #[clap(name = "kuksa.val.v1")]
+     KuksaValV1 = 1,
+-    #[clap(name = "sdv.databroker.v1")]
+-    SdvDatabrokerV1 = 2,
+ }
+ 
+ pub fn set_connected_prompt(interface: &Arc<Interface<DefaultTerminal>>, text: String) {
+diff --git a/databroker-mw-com/build.rs b/databroker-mw-com/build.rs
+index fdeb5a97d5325bd2ffcc22fd67b166e5780fb552..908a9254144e00eb3304a8db74df97d77f098072 100644
+--- a/databroker-mw-com/build.rs
++++ b/databroker-mw-com/build.rs
+@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
+ use std::process::{Command, Stdio};
+ 
+ const SCORE_LINK_PARAMS_SUFFIX: &str =
+-    "score/mw/com/example/vehicle-dynamics-example/vehicle-dynamics-example-0.params";
++    "score/mw/com/example/vehicle-dynamics-example/body-control-module-example-0.params";
+ 
+ fn main() {
+     println!("cargo:rerun-if-env-changed=SCORE_COM_BAZEL_BIN");
+@@ -37,7 +37,8 @@ fn main() {
+     // Merge them into a Cargo-visible archive so the final binary keeps the
+     // generated registration symbols that ordinary dead-code elimination drops.
+     let alwayslink_archives = collect_alwayslink_archives(&bazel_bin, &params_path);
+-    if let Some(archive_path) = create_alwayslink_archive(&alwayslink_archives) {
++    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set"));
++    if let Some(archive_path) = create_alwayslink_archive(&out_dir, &alwayslink_archives) {
+         if let Some(archive_dir) = archive_path.parent() {
+             println!("cargo:rustc-link-search=native={}", archive_dir.display());
+         }
+@@ -55,8 +56,8 @@ fn collect_alwayslink_archives(bazel_bin: &Path, params_path: &Path) -> Vec<Path
+     let params = fs::read_to_string(&params_path).unwrap_or_else(|error| {
+         panic!(
+             "failed to read S-Core link params at {}: {error}. \
+-             Rebuild the S-Core vehicle-dynamics-example target and set \
+-             SCORE_COM_LINK_PARAMS to its vehicle-dynamics-example-0.params file. \
++             Rebuild the S-Core body-control-module-example target and set \
++             SCORE_COM_LINK_PARAMS to its body-control-module-example-0.params file. \
+              If SCORE_COM_BAZEL_BIN points to a stale bazel-bin symlink, use `bazel info bazel-bin` from the S-Core communication checkout and export that path instead.",
+             params_path.display()
+         )
+@@ -192,18 +193,20 @@ fn score_build_root(bazel_bin: &Path, params_path: &Path) -> Option<PathBuf> {
+         .map(Path::to_path_buf)
+ }
+ 
+-fn create_alwayslink_archive(archives: &[PathBuf]) -> Option<PathBuf> {
++fn create_alwayslink_archive(out_dir: &Path, archives: &[PathBuf]) -> Option<PathBuf> {
+     if archives.is_empty() {
+         return None;
+     }
+ 
+-    let out_dir = env::var_os("OUT_DIR").map(PathBuf::from)?;
+     let archive_path = out_dir.join("libscore_com_alwayslink.a");
+     let _ = fs::remove_file(&archive_path);
+     let mut script = format!("CREATE {}\n", archive_path.display());
+     for (index, archive) in archives.iter().enumerate() {
+         println!("cargo:rerun-if-changed={}", archive.display());
+         let local_archive = out_dir.join(format!("score_com_alwayslink_part_{index}.a"));
++        if local_archive.exists() {
++            fs::remove_file(&local_archive).ok()?;
++        }
+         fs::copy(archive, &local_archive).ok()?;
+         script.push_str(&format!("ADDLIB {}\n", local_archive.display()));
+     }
+diff --git a/databroker-mw-com/src/main.rs b/databroker-mw-com/src/main.rs
+index ecdbbe0afd00b611d5144cd97c63401ef836821b..f621ff4638c34cc2fbf16a29e1891997d1a08589 100644
+--- a/databroker-mw-com/src/main.rs
++++ b/databroker-mw-com/src/main.rs
+@@ -15,7 +15,10 @@ use databroker::authorization::Authorization;
+ use databroker::broker::{ChangeType, DataBroker, DataType, DataValue, EntryType};
+ use databroker::grpc;
+ use databroker::permissions::ALLOW_ALL;
+-use mw_com_provider::score_bindings::{validate_score_bindings, ScoreBindingTransport};
++use mw_com_provider::gateway_adapter::GatewayScoreRuntimeAdapter;
++use mw_com_provider::score_bindings::{
++    validate_score_bindings, ScoreBindingTransport, ScoreRuntimeAdapter,
++};
+ use mw_com_provider::{
+     Direction, LolaScoreRuntimeAdapter, MwComProviderWorker, ProviderConfig, VssDataType,
+ };
+@@ -31,6 +34,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
+ 
+     let args = DemoArgs::parse()?;
+     let mut config = ProviderConfig::load_json(&args.provider_config)?;
++    configure_command_mode(
++        &mut config,
++        std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() == Ok("0"),
++    );
+     // The generated provider config is the source of truth. Optional filtering
+     // is applied before Databroker runtime IDs are assigned below.
+     if let Some(included_paths) = args.included_paths() {
+@@ -102,6 +109,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
+     Ok(())
+ }
+ 
++fn configure_command_mode(config: &mut ProviderConfig, direct_mode: bool) {
++    if direct_mode {
++        for mapping in &mut config.mappings {
++            if mapping
++                .actuation_binding
++                .as_ref()
++                .is_some_and(|binding| binding.service == "/body_control_module_tx")
++            {
++                mapping.direction = Direction::Datapoint;
++                mapping.actuation_binding = None;
++            }
++        }
++    }
++}
++
+ fn send_shutdown(tx: &mut Option<oneshot::Sender<()>>) {
+     if let Some(tx) = tx.take() {
+         let _ = tx.send(());
+@@ -144,11 +166,13 @@ fn bound_value(data_type: VssDataType, value: f64) -> DataValue {
+     match data_type {
+         VssDataType::Bool => DataValue::Bool(value != 0.0),
+         VssDataType::String => DataValue::String(value.to_string()),
+-        VssDataType::Int8 | VssDataType::Int32 => DataValue::Int32(value as i32),
++        VssDataType::Int8 | VssDataType::Int16 | VssDataType::Int32 => {
++            DataValue::Int32(value as i32)
++        }
+         VssDataType::Int64 => DataValue::Int64(value as i64),
+         VssDataType::Uint8 | VssDataType::Uint32 => DataValue::Uint32(value as u32),
+         VssDataType::Uint64 => DataValue::Uint64(value as u64),
+-        VssDataType::Float => DataValue::Float(value as f32),
++        VssDataType::Float | VssDataType::FloatArray => DataValue::Float(value as f32),
+         VssDataType::Double => DataValue::Double(value),
+     }
+ }
+@@ -158,12 +182,14 @@ fn data_type(data_type: VssDataType) -> DataType {
+         VssDataType::Bool => DataType::Bool,
+         VssDataType::String => DataType::String,
+         VssDataType::Int8 => DataType::Int8,
++        VssDataType::Int16 => DataType::Int16,
+         VssDataType::Int32 => DataType::Int32,
+         VssDataType::Int64 => DataType::Int64,
+         VssDataType::Uint8 => DataType::Uint8,
+         VssDataType::Uint32 => DataType::Uint32,
+         VssDataType::Uint64 => DataType::Uint64,
+         VssDataType::Float => DataType::Float,
++        VssDataType::FloatArray => DataType::FloatArray,
+         VssDataType::Double => DataType::Double,
+     }
+ }
+@@ -187,8 +213,7 @@ impl DemoArgs {
+         let mut address = "127.0.0.1:55555".parse()?;
+         let mut provider_config =
+             "mw_com_provider/generated/mw_com_provider_config.json".to_string();
+-        let mut score_config =
+-            "mw_com_provider/generated/vehicle_dynamics_lola_config.json".to_string();
++        let mut score_config = "mw_com_provider/generated/bcm_config_lola_config.json".to_string();
+         let mut include_vss_paths = Vec::new();
+ 
+         let mut args = std::env::args().skip(1);
+@@ -239,7 +264,7 @@ fn required_arg(
+ 
+ fn print_usage() {
+     eprintln!(
+-        "Usage: databroker-mw-com [OPTIONS]\n\nOptions:\n  --address <ADDR>                  Databroker gRPC bind address [default: 127.0.0.1:55555]\n  --provider-config <FILE>          Provider mapping config [default: mw_com_provider/generated/mw_com_provider_config.json]\n  --score-config <FILE>             SCORE LoLa config [default: mw_com_provider/generated/vehicle_dynamics_lola_config.json]\n  --include-vss-path <PATH>         Include only this VSS mapping; repeatable [default: all configured mappings]\n  -h, --help                        Print help"
++        "Usage: databroker-mw-com [OPTIONS]\n\nOptions:\n  --address <ADDR>                  Databroker gRPC bind address [default: 127.0.0.1:55555]\n  --provider-config <FILE>          Provider mapping config [default: mw_com_provider/generated/mw_com_provider_config.json]\n  --score-config <FILE>             SCORE LoLa config [default: mw_com_provider/generated/bcm_config_lola_config.json]\n  --include-vss-path <PATH>         Include only this VSS mapping; repeatable [default: all configured mappings]\n  -h, --help                        Print help"
+     );
+ }
+ 
+@@ -305,7 +330,13 @@ fn run_provider_worker(
+         .build()?;
+ 
+     runtime.block_on(async move {
+-        let adapter = LolaScoreRuntimeAdapter::new(score_config);
++        let adapter: Box<dyn ScoreRuntimeAdapter> = if GatewayScoreRuntimeAdapter::supports(&config)
++        {
++            info!("Using gateway-compatible Tx/Rx adapter");
++            Box::new(GatewayScoreRuntimeAdapter::new(score_config))
++        } else {
++            Box::new(LolaScoreRuntimeAdapter::new(score_config))
++        };
+         let transport = ScoreBindingTransport::new(adapter);
+         let provider = MwComProviderWorker::new(broker, ALLOW_ALL.clone(), config, transport)?;
+         provider.register_with_broker().await?;
+diff --git a/databroker-proto/build.rs b/databroker-proto/build.rs
+index d0f2b3455407e8bd576b21ace7b50b803165cf28..d0b0acc0bc80366aaf12eb0d19e9ff9670c4a88b 100644
+--- a/databroker-proto/build.rs
++++ b/databroker-proto/build.rs
+@@ -20,12 +20,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+         .protoc_arg("--experimental_allow_proto3_optional")
+         .compile_protos(
+             &[
+-                "proto/kuksa/val/v1/val.proto",
+-                "proto/kuksa/val/v1/types.proto",
+-                "proto/kuksa/val/v2/val.proto",
+-                "proto/kuksa/val/v2/types.proto",
++                "../proto/kuksa/val/v1/val.proto",
++                "../proto/kuksa/val/v1/types.proto",
++                "../proto/kuksa/val/v2/val.proto",
++                "../proto/kuksa/val/v2/types.proto",
+             ],
+-            &["proto"],
++            &["../proto"],
+         )?;
+ 
+     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+@@ -33,20 +33,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+         .file_descriptor_set_path(out_dir.join("kuksa.val.v2_descriptor.bin"))
+         .compile_protos(
+             &[
+-                "proto/kuksa/val/v2/val.proto",
+-                "proto/kuksa/val/v2/types.proto",
++                "../proto/kuksa/val/v2/val.proto",
++                "../proto/kuksa/val/v2/types.proto",
+             ],
+-            &["proto"],
++            &["../proto"],
+         )
+         .unwrap();
+     tonic_prost_build::configure()
+         .file_descriptor_set_path(out_dir.join("kuksa.val.v1_descriptor.bin"))
+         .compile_protos(
+             &[
+-                "proto/kuksa/val/v1/val.proto",
+-                "proto/kuksa/val/v1/types.proto",
++                "../proto/kuksa/val/v1/val.proto",
++                "../proto/kuksa/val/v1/types.proto",
+             ],
+-            &["proto"],
++            &["../proto"],
+         )
+         .unwrap();
+ 

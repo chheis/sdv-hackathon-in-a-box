@@ -91,6 +91,32 @@ class Shared_memory_slot_manager_test : public ::testing::Test {
 
 using Shared_memory_slot_manager_death_test = Shared_memory_slot_manager_test;
 
+#if defined(__linux__)
+TEST(Shared_memory_configs_test, supports_split_body_high_beam_and_dynamics_services) {
+    Shared_memory_manager_factory::Shared_memory_configuration config;
+    for (const auto* name : {"body_control_module_tx", "body_control_module_rx",
+                             "vehicle_high_beam_tx", "vehicle_high_beam_rx",
+                             "vehicle_dynamics_tx", "vehicle_dynamics_rx"}) {
+        const socom::Service_interface_identifier interface{name, socom::Literal_tag{}, {1, 0}};
+        const socom::Service_instance instance{name, socom::Literal_tag{}};
+        config[interface][instance] = {
+            fixed_string_from_string_asserted<Shared_memory_path>("/test_split_services"), 32, 4};
+    }
+    const auto configs = make_shared_memory_configs(config);
+
+    ASSERT_EQ(configs.size, 6U);
+    std::size_t index = 0;
+    for (const auto& [interface, instances] : config) {
+        for (const auto& [instance, metadata] : instances) {
+            EXPECT_EQ(configs.data[index].service, make_service(interface));
+            EXPECT_EQ(configs.data[index].instance_id, make_instance_id(instance));
+            EXPECT_EQ(configs.data[index].metadata, metadata);
+            ++index;
+        }
+    }
+}
+#endif
+
 // Test: Construction with valid parameters
 TEST_F(Shared_memory_slot_manager_test, construction_with_valid_parameters) {
     EXPECT_EQ(manager.get_slot_count(), DEFAULT_NUMBER_OF_SLOTS);

@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Contributors to the Eclipse Foundation
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Copy of the upstream SOME/IP bridge integration example.
 // Packaged here so the demo can be built and packaged entirely from sdv-hack-demo.
 
@@ -22,7 +26,7 @@
 #include <nlohmann/json.hpp>
 #include <vsomeip/vsomeip.hpp>
 
-#include "high_beam_udp_protocol.h"
+#include "sdv-hack-demo/include/high_beam_udp_protocol.h"
 #include "sdv-hack-demo/bridge/service_registration.h"
 #include "sdv-hack-demo/include/speed_payload.h"
 #include "score/mw/lifecycle/report_running.h"

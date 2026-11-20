@@ -31,14 +31,19 @@
 
 namespace score::gateway_ipc_binding {
 
-/// \brief Conservative upper bound for a single (framed) IPC message.
+/// \brief Platform-specific upper bound for a single (framed) IPC message.
 /// \details score::message_passing's QNX qnx_dispatch backend hardcodes its resmgr message
 /// buffer to 2088 bytes, independent of any configured protocol size, so a larger message
 /// fails to send with EMSGSIZE at the OS level on QNX. Message_frame<T> is statically checked
 /// against this bound so that growing one of the kMax_* constants in gateway_ipc_binding.hpp
-/// can't silently reintroduce a message that can never be delivered.
+/// can't silently reintroduce a message that can never be delivered. Linux uses configurable
+/// socket message buffers and can accommodate the larger service handshake.
 // See also https://github.com/eclipse-score/communication/issues/848
+#if defined(__linux__)
+inline constexpr std::size_t kMax_safe_message_size = 4096U;
+#else
 inline constexpr std::size_t kMax_safe_message_size = 2000U;
+#endif
 
 /// \brief Message type identifiers for IPC framing
 enum class Message_type : std::uint8_t {

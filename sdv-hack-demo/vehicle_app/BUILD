@@ -17,7 +17,7 @@ cc_library(
 cc_test(
     name = "signal_test_values_test",
     srcs = ["signal_test_values_test.cpp"],
-    data = ["//sdv-hack-demo:signal_routes.json"],
+    data = ["//sdv-hack-demo:config/signal_routes.json"],
     deps = [
         ":signal_test_values",
     ],
@@ -26,7 +26,7 @@ cc_test(
 cc_binary(
     name = "body_signal_test_app",
     srcs = ["body_signal_test_app.cpp"],
-    data = ["//sdv-hack-demo:signal_routes.json"],
+    data = ["//sdv-hack-demo:config/signal_routes.json"],
     visibility = ["//visibility:public"],
     deps = [
         ":signal_test_values",
@@ -41,8 +41,6 @@ cc_binary(
     data = ["@score_someip_gateway//score/gatewayd:etc/mw_com_config.json"],
     visibility = ["//visibility:public"],
     deps = [
-        "//:kuksa_val_client",
-        "@grpc//:grpc++",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
         "@score_logging//score/mw/log:log",
         "@score_communication//score/mw/com",
