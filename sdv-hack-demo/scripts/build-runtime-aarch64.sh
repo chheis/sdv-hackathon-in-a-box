@@ -38,11 +38,17 @@ elif [[ "$(uname -m)" == x86_64 ]]; then
     builder_args=(--builder "$builder")
 fi
 
+# Apply the download settings to a copy so existing runtime patches stay re-runnable.
+build_dir="$(mktemp -d)"
+trap 'rm -f -- "$build_dir/Dockerfile"; rmdir -- "$build_dir"' EXIT
+cp Dockerfile "$build_dir/Dockerfile"
+(cd "$build_dir" && git apply "${repo_root}/sdv-hack-demo/sdv-runtime/pip-downloads.patch")
+
 docker buildx build "${builder_args[@]}" \
     --platform linux/arm64 \
     --load \
     -t sdv-runtime:mw-com \
-    -f Dockerfile .
+    -f - . < "$build_dir/Dockerfile"
 
 # Export the image for packaging and loading on the Pi.
 docker save -o sdv-runtime-mw-com.tar sdv-runtime:mw-com

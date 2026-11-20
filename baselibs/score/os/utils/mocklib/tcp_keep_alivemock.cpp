@@ -13,7 +13,9 @@
 #include "score/os/utils/mocklib/tcp_keep_alivemock.h"
 #include "score/os/utils/tcp_keep_alive.h"
 
+score::os::TcpKeepAliveMocK* score::os::TcpKeepAliveMocK::instance_{nullptr};
+
 bool score::os::TcpKeepAlive(int sockfd)
 {
-    return true;
+    return score::os::TcpKeepAliveMocK::getInstance().TcpKeepAlive(sockfd);
 }
