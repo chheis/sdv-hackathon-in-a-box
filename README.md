@@ -148,6 +148,10 @@ export AARCH64_TOOLCHAIN_ROOT="$HOME/aarch64_toolchain"
 On x86-64, the runtime build creates or reuses the `sdv-val2-builder`
 Buildx container for ARM64 emulation without changing the default builder.
 Set `BUILDX_BUILDER` explicitly to use a different builder.
+The runtime build retries interrupted Python dependency installs and reuses a pip
+download cache on the same builder. If PyPI remains unreachable, restore network
+access and rerun `bash sdv-hack-demo/scripts/build-runtime-aarch64.sh`; there is
+no need to clean or rebuild the native ARM64 targets.
 
 
 **Note:** Completing the build requires the KUKSA Databroker mw::com provider

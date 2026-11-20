@@ -25,8 +25,26 @@ rust_proc_macro(
 )
 
 rust_test(
-    name = "tests",
+    name = "test_format_args",
     srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/test_format_args.rs",
+    proc_macro_deps = [
+        "//score/log_rust/score_log_fmt_macro",
+    ],
+    tags = [
+        "unit_tests",
+        "ut",
+    ],
+    deps = [
+        "//score/log_rust/score_log",
+        "//score/log_rust/score_log_fmt",
+    ],
+)
+
+rust_test(
+    name = "test_score_debug",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/test_score_debug.rs",
     proc_macro_deps = [
         "//score/log_rust/score_log_fmt_macro",
     ],
